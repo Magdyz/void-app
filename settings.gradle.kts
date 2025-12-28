@@ -30,11 +30,11 @@ include(":slate:design")
 // Comment out any block to remove it from the build
 // ═══════════════════════════════════════════════════════════════════
 include(":blocks:identity")      // 3-word identity system
-include(":blocks:rhythm")        // Rhythm key authentication
-include(":blocks:messaging")     // Core messaging
-include(":blocks:contacts")      // Contact management
-include(":blocks:decoy")         // Decoy mode for plausible deniability
-include(":blocks:onboarding")    // Onboarding flow
+// include(":blocks:rhythm")        // Rhythm key authentication - TODO: Phase 1B
+// include(":blocks:messaging")     // Core messaging - TODO: Phase 2A
+// include(":blocks:contacts")      // Contact management - TODO: Phase 2A
+// include(":blocks:decoy")         // Decoy mode for plausible deniability - TODO: Phase 3
+// include(":blocks:onboarding")    // Onboarding flow - TODO: Phase 1C
 
 // ═══════════════════════════════════════════════════════════════════
 // APP (Shell) - Just wiring, no logic

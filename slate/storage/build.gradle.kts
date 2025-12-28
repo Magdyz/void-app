@@ -3,16 +3,16 @@ plugins {
 }
 
 android {
-    namespace = "com.void.slate.storage"
+    namespace = "app.voidapp.slate.storage"
 }
 
 dependencies {
     // Slate core for interfaces
     api(project(":slate:core"))
 
-    // SQLCipher for encrypted database
+    // SQLCipher for encrypted database (16 KB page size compatible)
     implementation(libs.sqlcipher)
-    implementation("androidx.sqlite:sqlite-ktx:2.4.0")
+    implementation(libs.androidx.sqlite)
 
     // Coroutines
     implementation(libs.coroutines.core)

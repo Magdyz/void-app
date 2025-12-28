@@ -1,6 +1,7 @@
 package com.void.convention
 
 import com.android.build.gradle.internal.dsl.BaseAppModuleExtension
+import org.gradle.api.JavaVersion
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.kotlin.dsl.configure
@@ -21,7 +22,7 @@ class VoidAppPlugin : Plugin<Project> {
             
             extensions.configure<BaseAppModuleExtension> {
                 compileSdk = 35
-                
+
                 defaultConfig {
                     applicationId = "com.void.app"
                     minSdk = 26
@@ -30,16 +31,16 @@ class VoidAppPlugin : Plugin<Project> {
                     versionName = "1.0.0"
                     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
                 }
-                
+
                 buildFeatures {
                     compose = true
                 }
-                
+
                 compileOptions {
                     sourceCompatibility = JavaVersion.VERSION_17
                     targetCompatibility = JavaVersion.VERSION_17
                 }
-                
+
                 buildTypes {
                     release {
                         isMinifyEnabled = true
@@ -48,6 +49,13 @@ class VoidAppPlugin : Plugin<Project> {
                             "proguard-rules.pro"
                         )
                     }
+                }
+            }
+
+            // Ensure Kotlin targets the same JVM version
+            tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile::class.java).configureEach {
+                kotlinOptions {
+                    jvmTarget = "17"
                 }
             }
             
@@ -60,11 +68,11 @@ class VoidAppPlugin : Plugin<Project> {
                 
                 // All blocks (comment out to remove a feature)
                 add("implementation", project(":blocks:identity"))
-                add("implementation", project(":blocks:rhythm"))
-                add("implementation", project(":blocks:messaging"))
-                add("implementation", project(":blocks:contacts"))
-                add("implementation", project(":blocks:decoy"))
-                add("implementation", project(":blocks:onboarding"))
+                // add("implementation", project(":blocks:rhythm"))        // TODO: Phase 1B
+                // add("implementation", project(":blocks:messaging"))     // TODO: Phase 2A
+                // add("implementation", project(":blocks:contacts"))      // TODO: Phase 2A
+                // add("implementation", project(":blocks:decoy"))         // TODO: Phase 3
+                // add("implementation", project(":blocks:onboarding"))    // TODO: Phase 1C
                 
                 // Standard dependencies
                 add("implementation", libs.findBundle("compose").get())

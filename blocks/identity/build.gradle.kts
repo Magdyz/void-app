@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.void.block.identity"
+    namespace = "app.voidapp.block.identity"
 }
 
 // Block-specific dependencies (in addition to what void.block provides)

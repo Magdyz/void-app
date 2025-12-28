@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.void.app"
+    namespace = "app.voidapp.secure"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.void.app"
+        applicationId = "app.voidapp.secure"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
@@ -65,11 +65,12 @@ dependencies {
 
     // Blocks - all feature modules
     implementation(project(":blocks:identity"))
-    implementation(project(":blocks:rhythm"))
-    implementation(project(":blocks:messaging"))
-    implementation(project(":blocks:contacts"))
-    implementation(project(":blocks:decoy"))
-    implementation(project(":blocks:onboarding"))
+    // Phase 1B+ blocks (not implemented yet):
+    // implementation(project(":blocks:rhythm"))
+    // implementation(project(":blocks:messaging"))
+    // implementation(project(":blocks:contacts"))
+    // implementation(project(":blocks:decoy"))
+    // implementation(project(":blocks:onboarding"))
 
     // Compose
     implementation(platform(libs.compose.bom))

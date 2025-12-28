@@ -93,15 +93,11 @@ abstract class MviViewModel<S : UiState, I : UiIntent, E : UiEffect>(
 
 /**
  * Simplified ViewModel for screens without effects.
+ * Since the effect type is Nothing, sendEffect cannot be called.
  */
 abstract class StateViewModel<S : UiState, I : UiIntent>(
     initialState: S
-) : MviViewModel<S, I, Nothing>(initialState) {
-    
-    override suspend fun sendEffect(effect: Nothing) {
-        // No effects in this ViewModel
-    }
-}
+) : MviViewModel<S, I, Nothing>(initialState)
 
 // ═══════════════════════════════════════════════════════════════════
 // Common State Patterns

@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.void.slate.crypto"
+    namespace = "app.voidapp.slate.crypto"
 }
 
 dependencies {

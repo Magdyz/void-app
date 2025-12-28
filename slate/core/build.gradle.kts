@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.void.slate.core"
+    namespace = "app.voidapp.slate.core"
 }
 
 dependencies {

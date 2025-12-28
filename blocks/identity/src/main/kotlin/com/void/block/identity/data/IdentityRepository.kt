@@ -44,8 +44,8 @@ class IdentityRepository(
         // Store encrypted seed and words
         secureStorage.put(KEY_SEED, encryptedSeed.ciphertext)
         secureStorage.put(KEY_NONCE, encryptedSeed.nonce)
-        secureStorage.put(KEY_WORDS, identity.words.joinToString(","))
-        secureStorage.put(KEY_CREATED, identity.createdAt.toString())
+        secureStorage.putString(KEY_WORDS, identity.words.joinToString(","))
+        secureStorage.putString(KEY_CREATED, identity.createdAt.toString())
         
         _identity.value = identity
     }

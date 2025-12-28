@@ -2,10 +2,12 @@
 kotlin = "2.0.21"
 agp = "8.7.3"
 compose-bom = "2024.12.01"
+compose-material3 = "1.3.1"
 compose-compiler = "1.5.15"
 koin = "3.5.6"
 ktor = "2.3.12"
-sqlcipher = "4.5.7"
+sqlcipher = "4.12.0"
+androidx-sqlite = "2.4.0"
 tink = "1.15.0"
 signal-protocol = "2.8.1"
 coroutines = "1.9.0"
@@ -22,7 +24,7 @@ compose-ui = { group = "androidx.compose.ui", name = "ui" }
 compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
 compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+compose-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "compose-material3" }
 compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
 
 # Navigation
@@ -45,9 +47,15 @@ ktor-client-websockets = { group = "io.ktor", name = "ktor-client-websockets", v
 ktor-serialization = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor" }
 
 # Security & Crypto
-sqlcipher = { group = "net.zetetic", name = "android-database-sqlcipher", version.ref = "sqlcipher" }
+sqlcipher = { group = "net.zetetic", name = "sqlcipher-android", version.ref = "sqlcipher" }
+androidx-sqlite = { group = "androidx.sqlite", name = "sqlite", version.ref = "androidx-sqlite" }
 tink = { group = "com.google.crypto.tink", name = "tink-android", version.ref = "tink" }
 signal-protocol = { group = "org.signal", name = "signal-protocol-android", version.ref = "signal-protocol" }
+
+# Gradle Plugins (for convention plugins)
+android-gradle-plugin = { group = "com.android.tools.build", name = "gradle", version.ref = "agp" }
+kotlin-gradle-plugin = { group = "org.jetbrains.kotlin", name = "kotlin-gradle-plugin", version.ref = "kotlin" }
+compose-gradle-plugin = { group = "org.jetbrains.kotlin", name = "compose-compiler-gradle-plugin", version.ref = "kotlin" }
 
 # Coroutines
 coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }

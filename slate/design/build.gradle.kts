@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.void.slate.design"
+    namespace = "app.voidapp.slate.design"
 
     buildFeatures {
         compose = true

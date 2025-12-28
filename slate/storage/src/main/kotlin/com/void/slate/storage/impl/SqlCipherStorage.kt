@@ -3,15 +3,17 @@ package com.void.slate.storage.impl
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.util.Base64
 import com.void.slate.storage.SecureStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import net.sqlcipher.database.SQLiteDatabase
-import net.sqlcipher.database.SQLiteOpenHelper
+import net.zetetic.database.sqlcipher.SQLiteDatabase
 import java.security.KeyStore
-import java.security.MessageDigest
+import java.security.SecureRandom
+import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 
 /**
  * SQLCipher-based implementation of SecureStorage.
@@ -22,19 +24,47 @@ import javax.crypto.SecretKey
  * - All operations are suspend functions for coroutine safety
  * - Key-value storage with binary and string support
  */
+@OptIn(ExperimentalStdlibApi::class)
 class SqlCipherStorage(
     private val context: Context,
     private val keyAlias: String = "void_storage_key"
 ) : SecureStorage {
 
-    private val database: SQLiteDatabase by lazy {
-        val helper = VoidDatabaseHelper(context, getOrCreateDatabaseKey())
-        helper.writableDatabase
+    init {
+        // Initialize SQLCipher native library
+        System.loadLibrary("sqlcipher")
     }
 
-    init {
-        // Initialize SQLCipher
-        SQLiteDatabase.loadLibs(context)
+    private val database: SQLiteDatabase by lazy {
+        val databaseFile = context.getDatabasePath(DATABASE_NAME)
+        val password = getOrCreateDatabaseKey().toHexString()
+
+        // Open or create encrypted database
+        val db = SQLiteDatabase.openOrCreateDatabase(
+            databaseFile.absolutePath,
+            password,
+            null,
+            null,
+            null
+        )
+
+        // Create tables if they don't exist
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS secure_storage (
+                key TEXT PRIMARY KEY,
+                value BLOB NOT NULL,
+                type TEXT NOT NULL,
+                created_at INTEGER DEFAULT (strftime('%s', 'now')),
+                updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+            """.trimIndent()
+        )
+
+        // Create index for faster lookups
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_key ON secure_storage(key)")
+
+        db
     }
 
     override suspend fun put(key: String, value: ByteArray) = withContext(Dispatchers.IO) {
@@ -110,17 +140,70 @@ class SqlCipherStorage(
     }
 
     /**
-     * Get or create the database encryption key from Android Keystore.
+     * Get or create the database encryption key.
+     * Uses Android Keystore to protect a randomly generated database key.
      */
     private fun getOrCreateDatabaseKey(): ByteArray {
+        val prefs = context.getSharedPreferences("void_storage_prefs", Context.MODE_PRIVATE)
+        val encryptedKeyBase64 = prefs.getString(PREF_ENCRYPTED_DB_KEY, null)
+        val ivBase64 = prefs.getString(PREF_DB_KEY_IV, null)
+
+        return if (encryptedKeyBase64 != null && ivBase64 != null) {
+            // Decrypt existing database key
+            val encryptedKey = Base64.decode(encryptedKeyBase64, Base64.NO_WRAP)
+            val iv = Base64.decode(ivBase64, Base64.NO_WRAP)
+            decryptDatabaseKey(encryptedKey, iv)
+        } else {
+            // Generate and encrypt new database key
+            val dbKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
+            val (encryptedKey, iv) = encryptDatabaseKey(dbKey)
+
+            // Store encrypted key
+            prefs.edit()
+                .putString(PREF_ENCRYPTED_DB_KEY, Base64.encodeToString(encryptedKey, Base64.NO_WRAP))
+                .putString(PREF_DB_KEY_IV, Base64.encodeToString(iv, Base64.NO_WRAP))
+                .apply()
+
+            dbKey
+        }
+    }
+
+    /**
+     * Encrypt the database key using Android Keystore.
+     */
+    private fun encryptDatabaseKey(dbKey: ByteArray): Pair<ByteArray, ByteArray> {
+        val keystoreKey = getOrCreateKeystoreKey()
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, keystoreKey)
+
+        val encryptedKey = cipher.doFinal(dbKey)
+        val iv = cipher.iv
+
+        return Pair(encryptedKey, iv)
+    }
+
+    /**
+     * Decrypt the database key using Android Keystore.
+     */
+    private fun decryptDatabaseKey(encryptedKey: ByteArray, iv: ByteArray): ByteArray {
+        val keystoreKey = getOrCreateKeystoreKey()
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        val spec = GCMParameterSpec(128, iv)
+        cipher.init(Cipher.DECRYPT_MODE, keystoreKey, spec)
+
+        return cipher.doFinal(encryptedKey)
+    }
+
+    /**
+     * Get or create the Android Keystore key.
+     */
+    private fun getOrCreateKeystoreKey(): SecretKey {
         val keyStore = KeyStore.getInstance("AndroidKeyStore")
         keyStore.load(null)
 
-        val secretKey = if (keyStore.containsAlias(keyAlias)) {
-            // Key exists, retrieve it
+        return if (keyStore.containsAlias(keyAlias)) {
             keyStore.getKey(keyAlias, null) as SecretKey
         } else {
-            // Create new key
             val keyGenerator = KeyGenerator.getInstance(
                 KeyProperties.KEY_ALGORITHM_AES,
                 "AndroidKeyStore"
@@ -138,63 +221,20 @@ class SqlCipherStorage(
             keyGenerator.init(keyGenParameterSpec)
             keyGenerator.generateKey()
         }
-
-        // Derive a passphrase from the key
-        // SQLCipher needs a string passphrase, so we hash the key bytes
-        val keyBytes = secretKey.encoded
-        return MessageDigest.getInstance("SHA-256").digest(keyBytes)
     }
 
     /**
-     * SQLCipher database helper.
+     * Convert byte array to hex string for use as database password.
      */
-    private class VoidDatabaseHelper(
-        context: Context,
-        private val key: ByteArray
-    ) : SQLiteOpenHelper(
-        context,
-        DATABASE_NAME,
-        null,
-        DATABASE_VERSION
-    ) {
-
-        override fun onCreate(db: SQLiteDatabase) {
-            db.execSQL(
-                """
-                CREATE TABLE secure_storage (
-                    key TEXT PRIMARY KEY,
-                    value BLOB NOT NULL,
-                    type TEXT NOT NULL,
-                    created_at INTEGER DEFAULT (strftime('%s', 'now')),
-                    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
-                )
-                """.trimIndent()
-            )
-
-            // Index for faster lookups
-            db.execSQL("CREATE INDEX idx_key ON secure_storage(key)")
-        }
-
-        override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-            // Future migrations go here
-        }
-
-        override fun getWritableDatabase(): SQLiteDatabase {
-            return getWritableDatabase(key.toHexString())
-        }
-
-        override fun getReadableDatabase(): SQLiteDatabase {
-            return getReadableDatabase(key.toHexString())
-        }
-
-        private fun ByteArray.toHexString(): String {
-            return joinToString("") { "%02x".format(it) }
-        }
+    @OptIn(ExperimentalStdlibApi::class)
+    private fun ByteArray.toHexString(): String {
+        return joinToString("") { "%02x".format(it) }
     }
 
     companion object {
         private const val DATABASE_NAME = "void_secure.db"
-        private const val DATABASE_VERSION = 1
+        private const val PREF_ENCRYPTED_DB_KEY = "encrypted_db_key"
+        private const val PREF_DB_KEY_IV = "db_key_iv"
 
         private const val TYPE_BINARY = "binary"
         private const val TYPE_STRING = "string"
