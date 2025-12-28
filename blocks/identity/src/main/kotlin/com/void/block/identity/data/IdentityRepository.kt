@@ -2,6 +2,7 @@ package com.void.block.identity.data
 
 import com.void.block.identity.domain.Identity
 import com.void.slate.crypto.CryptoProvider
+import com.void.slate.storage.SecureStorage
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -106,18 +107,4 @@ class IdentityRepository(
         private const val KEY_WORDS = "identity.words"
         private const val KEY_CREATED = "identity.created"
     }
-}
-
-/**
- * Interface for secure storage.
- * Implemented by slate/storage module.
- */
-interface SecureStorage {
-    suspend fun put(key: String, value: ByteArray)
-    suspend fun get(key: String): ByteArray?
-    suspend fun getString(key: String): String?
-    suspend fun putString(key: String, value: String)
-    suspend fun delete(key: String)
-    suspend fun contains(key: String): Boolean
-    suspend fun getDeviceId(): ByteArray
 }

@@ -45,6 +45,8 @@ class VoidBlockPlugin : Plugin<Project> {
             dependencies {
                 // Blocks can ONLY depend on slate modules
                 add("implementation", project(":slate:core"))
+                add("implementation", project(":slate:crypto"))
+                add("implementation", project(":slate:storage"))
                 add("implementation", project(":slate:design"))
                 
                 // Standard dependencies for all blocks
