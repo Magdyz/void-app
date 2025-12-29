@@ -48,10 +48,11 @@ class MainActivity : ComponentActivity() {
                     var startDestination by remember { mutableStateOf<String?>(null) }
 
                     LaunchedEffect(Unit) {
-                        // Run verification tests in background
-                        lifecycleScope.launch {
-                            runVerificationTests()
-                        }
+                        // TODO: Re-enable verification tests in a separate test app or first-launch only
+                        // Disabled for now because they call panicWipe() which deletes user data
+                        // lifecycleScope.launch {
+                        //     runVerificationTests()
+                        // }
 
                         // Determine where to start the user
                         startDestination = appStateManager.getStartDestination()

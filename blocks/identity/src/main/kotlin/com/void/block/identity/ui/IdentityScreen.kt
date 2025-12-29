@@ -28,6 +28,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.Lifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,17 +57,30 @@ fun IdentityScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val clipboardManager = LocalClipboardManager.current
-    
-    // Handle effects
-    LaunchedEffect(Unit) {
-        viewModel.effects.collect { effect ->
-            when (effect) {
-                is IdentityEffect.NavigateToNext -> onComplete()
-                is IdentityEffect.CopyToClipboard -> {
-                    clipboardManager.setText(AnnotatedString(effect.text))
-                }
-                is IdentityEffect.ShowError -> {
-                    // Show error toast/snackbar
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // Debug: Log state changes
+    LaunchedEffect(state) {
+        println("VOID_DEBUG: IdentityScreen - State updated: identity=${state.identity?.formatted}, canConfirm=${state.canConfirm}, isRegenerating=${state.isRegenerating}, loadingState=${state.loadingState}")
+    }
+
+    // Handle effects - CHANGED TO ROBUST LIFECYCLE COLLECTION
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            println("VOID_DEBUG: Effect collector STARTED")
+            viewModel.effects.collect { effect ->
+                println("VOID_DEBUG: Effect received in UI: $effect")
+                when (effect) {
+                    is IdentityEffect.NavigateToNext -> {
+                        println("VOID_DEBUG: Executing onComplete()")
+                        onComplete()
+                    }
+                    is IdentityEffect.CopyToClipboard -> {
+                        clipboardManager.setText(AnnotatedString(effect.text))
+                    }
+                    is IdentityEffect.ShowError -> {
+                        // Show error toast/snackbar
+                    }
                 }
             }
         }
@@ -158,7 +174,10 @@ fun IdentityScreen(
         
         // Confirm Button
         VoidButton(
-            onClick = { viewModel.onIntent(IdentityIntent.Confirm) },
+            onClick = { 
+                println("VOID_DEBUG: Confirm Button Clicked")
+                viewModel.onIntent(IdentityIntent.Confirm) 
+            },
             enabled = state.canConfirm,
             modifier = Modifier.fillMaxWidth()
         ) {

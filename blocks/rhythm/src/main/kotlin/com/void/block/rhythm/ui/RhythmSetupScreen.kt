@@ -26,12 +26,18 @@ fun RhythmSetupScreen(
     onCancel: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    println("VOID_DEBUG: RhythmSetupScreen composable RENDERING")
     val capture = remember { RhythmCapture() }
     val tapCount by capture.tapCount.collectAsState()
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
+        println("VOID_DEBUG: RhythmSetupScreen LaunchedEffect - starting capture")
         capture.start()
+    }
+
+    LaunchedEffect(tapCount) {
+        println("VOID_DEBUG: RhythmSetupScreen - tapCount changed to: $tapCount")
     }
 
     Column(

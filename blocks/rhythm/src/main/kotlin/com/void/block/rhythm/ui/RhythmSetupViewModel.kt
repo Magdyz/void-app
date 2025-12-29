@@ -17,13 +17,20 @@ class RhythmSetupViewModel : ViewModel() {
     private val _state = MutableStateFlow<RhythmSetupState>(RhythmSetupState.Idle)
     val state: StateFlow<RhythmSetupState> = _state.asStateFlow()
 
+    init {
+        println("VOID_DEBUG: RhythmSetupViewModel initialized, initial state: ${_state.value}")
+    }
+
     fun onPatternCreated(pattern: RhythmPattern) {
+        println("VOID_DEBUG: RhythmSetupViewModel.onPatternCreated called with pattern: ${pattern.intervals}")
         viewModelScope.launch {
             _state.value = RhythmSetupState.PatternCreated(pattern)
+            println("VOID_DEBUG: RhythmSetupViewModel state updated to: PatternCreated")
         }
     }
 
     fun reset() {
+        println("VOID_DEBUG: RhythmSetupViewModel.reset called")
         _state.value = RhythmSetupState.Idle
     }
 }

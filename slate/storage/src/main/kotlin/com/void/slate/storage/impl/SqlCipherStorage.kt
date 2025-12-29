@@ -28,7 +28,7 @@ import javax.crypto.spec.GCMParameterSpec
 @OptIn(ExperimentalStdlibApi::class)
 class SqlCipherStorage(
     private val context: Context,
-    private val keyAlias: String = "void_storage_key"
+    private val keyAlias: String = "app_storage_key" // Changed from "void_storage_key" to prevent deletion by panic wipe
 ) : SecureStorage {
 
     init {
@@ -227,6 +227,16 @@ class SqlCipherStorage(
     private fun getOrCreateKeystoreKey(): SecretKey {
         val keyStore = KeyStore.getInstance("AndroidKeyStore")
         keyStore.load(null)
+
+        // Migration: Check for old key alias and migrate to new one
+        val oldKeyAlias = "void_storage_key"
+        if (!keyStore.containsAlias(keyAlias) && keyStore.containsAlias(oldKeyAlias)) {
+            Log.d(TAG, "Migrating from old key alias '$oldKeyAlias' to new alias '$keyAlias'")
+            // Note: We can't actually rename a keystore entry, so we'll let the old key exist
+            // and create a new one. The encrypted database key will need to be re-encrypted.
+            // But since we can't re-encrypt without the data, we'll just use the old key.
+            return keyStore.getKey(oldKeyAlias, null) as SecretKey
+        }
 
         return if (keyStore.containsAlias(keyAlias)) {
             keyStore.getKey(keyAlias, null) as SecretKey

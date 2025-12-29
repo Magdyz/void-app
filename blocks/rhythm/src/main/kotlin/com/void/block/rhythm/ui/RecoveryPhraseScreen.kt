@@ -3,7 +3,9 @@ package com.void.block.rhythm.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -28,10 +30,12 @@ fun RecoveryPhraseScreen(
     modifier: Modifier = Modifier
 ) {
     var hasAcknowledged by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
 
     Column(
         modifier = modifier
             .fillMaxSize()
+            .verticalScroll(scrollState)
             .padding(24.dp)
     ) {
         // Header
@@ -81,31 +85,31 @@ fun RecoveryPhraseScreen(
         // Phrase grid
         PhraseGrid(phrase = recoveryPhrase)
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // Security tips
+        // Security tips - Made more compact
         Card(
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             ),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(12.dp)) {
                 Text(
                     text = "Security Tips:",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "• Write on paper, not digitally\n• Store in a safe place\n• Never share with anyone\n• Consider making a backup copy",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = "• Write on paper\n• Store safely\n• Never share",
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Acknowledgment checkbox
         Row(
@@ -113,20 +117,20 @@ fun RecoveryPhraseScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { hasAcknowledged = !hasAcknowledged }
-                .padding(vertical = 12.dp)
+                .padding(vertical = 8.dp)
         ) {
             Checkbox(
                 checked = hasAcknowledged,
                 onCheckedChange = { hasAcknowledged = it }
             )
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = "I have safely written down my recovery phrase",
-                style = MaterialTheme.typography.bodyLarge
+                style = MaterialTheme.typography.bodyMedium
             )
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(24.dp))
 
         // Action buttons
         Button(
@@ -137,14 +141,8 @@ fun RecoveryPhraseScreen(
             Text("Continue")
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedButton(
-            onClick = onBack,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Go Back")
-        }
+        // Bottom padding for scroll
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 

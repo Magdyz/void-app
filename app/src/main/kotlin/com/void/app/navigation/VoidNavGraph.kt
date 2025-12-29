@@ -45,9 +45,15 @@ fun VoidNavGraph(
             IdentityScreen(
                 onComplete = {
                     // Identity created → Set up rhythm authentication
-                    navController.navigate(Routes.RHYTHM_SETUP) {
-                        popUpTo(Routes.IDENTITY_GENERATE) { inclusive = true }
+                    println("VOID_DEBUG: onComplete callback called, navigating to ${Routes.RHYTHM_SETUP}")
+                    try {
+                        navController.navigate(Routes.RHYTHM_SETUP)
+                        println("VOID_DEBUG: Navigation call completed successfully")
+                    } catch (e: Exception) {
+                        println("VOID_DEBUG: Navigation failed with error: ${e.message}")
+                        e.printStackTrace()
                     }
+                    // Do NOT popUpTo here. The back stack will be cleared later at Routes.MESSAGES_LIST.
                 },
                 onSkip = null // Can't skip identity generation
             )
@@ -58,15 +64,19 @@ fun VoidNavGraph(
         // ═══════════════════════════════════════════════════════════════
 
         composable(Routes.RHYTHM_SETUP) {
+            println("VOID_DEBUG: RHYTHM_SETUP composable entered")
             val setupViewModel: RhythmSetupViewModel = koinViewModel()
+            println("VOID_DEBUG: RhythmSetupViewModel obtained")
 
             RhythmSetupScreen(
                 onComplete = { pattern ->
+                    println("VOID_DEBUG: RhythmSetupScreen onComplete called with pattern: ${pattern.intervals}")
                     setupViewModel.onPatternCreated(pattern)
                     // Navigate to confirmation
                     navController.navigate(Routes.RHYTHM_CONFIRM)
                 },
                 onCancel = {
+                    println("VOID_DEBUG: RhythmSetupScreen onCancel called")
                     // Can't cancel during onboarding
                     navController.popBackStack()
                 }
@@ -74,13 +84,28 @@ fun VoidNavGraph(
         }
 
         composable(Routes.RHYTHM_CONFIRM) {
-            val setupViewModel: RhythmSetupViewModel = koinViewModel()
+            println("VOID_DEBUG: RHYTHM_CONFIRM composable entered")
+
+            // CRITICAL: Get the RhythmSetupViewModel from the RHYTHM_SETUP backstack entry
+            // This ensures we use the SAME ViewModel instance that has the pattern
+            val setupBackStackEntry = try {
+                navController.getBackStackEntry(Routes.RHYTHM_SETUP)
+            } catch (e: IllegalArgumentException) {
+                // Backstack entry doesn't exist - we've navigated away
+                println("VOID_DEBUG: RHYTHM_SETUP not in backstack, returning early")
+                return@composable
+            }
+            val setupViewModel: RhythmSetupViewModel = koinViewModel(viewModelStoreOwner = setupBackStackEntry)
             val confirmViewModel: RhythmConfirmViewModel = koinViewModel()
             val setupState by setupViewModel.state.collectAsState()
             val confirmState by confirmViewModel.state.collectAsState()
 
+            println("VOID_DEBUG: Setup state: $setupState")
+            println("VOID_DEBUG: Confirm state: $confirmState")
+
             // Get pattern from setup state
             val pattern = (setupState as? RhythmSetupState.PatternCreated)?.pattern
+            println("VOID_DEBUG: Pattern from setup state: ${pattern?.intervals}")
 
             if (pattern != null) {
                 RhythmConfirmScreen(
@@ -99,10 +124,8 @@ fun VoidNavGraph(
                     when (val state = confirmState) {
                         is RhythmConfirmState.Success -> {
                             // Navigate to recovery phrase display
-                            navController.navigate(Routes.RHYTHM_RECOVERY) {
-                                // Clear back stack - can't go back from recovery phrase
-                                popUpTo(Routes.RHYTHM_SETUP) { inclusive = true }
-                            }
+                            // Don't pop backstack here - we'll clear it when reaching Messages
+                            navController.navigate(Routes.RHYTHM_RECOVERY)
                         }
                         is RhythmConfirmState.Error -> {
                             // Show error, stay on screen
@@ -112,6 +135,7 @@ fun VoidNavGraph(
                 }
             } else {
                 // Pattern is null - shouldn't happen, go back
+                println("VOID_DEBUG: Pattern is null, going back to previous screen")
                 LaunchedEffect(Unit) {
                     navController.popBackStack()
                 }
@@ -119,7 +143,16 @@ fun VoidNavGraph(
         }
 
         composable(Routes.RHYTHM_RECOVERY) {
-            val confirmViewModel: RhythmConfirmViewModel = koinViewModel()
+            // Safely get the RhythmConfirmViewModel from the RHYTHM_CONFIRM backstack entry
+            // This might not exist if we've navigated away and backstack was cleared
+            val confirmBackStackEntry = try {
+                navController.getBackStackEntry(Routes.RHYTHM_CONFIRM)
+            } catch (e: IllegalArgumentException) {
+                // Backstack entry doesn't exist - we've navigated away
+                // Return early to avoid crash
+                return@composable
+            }
+            val confirmViewModel: RhythmConfirmViewModel = koinViewModel(viewModelStoreOwner = confirmBackStackEntry)
             val confirmState by confirmViewModel.state.collectAsState()
 
             when (val state = confirmState) {

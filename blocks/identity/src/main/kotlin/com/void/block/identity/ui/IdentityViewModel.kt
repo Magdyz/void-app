@@ -24,11 +24,13 @@ class IdentityViewModel(
 ) {
     
     init {
+        println("VOID_DEBUG: IdentityViewModel initialized")
         // Generate identity on start if not already done
         onIntent(IdentityIntent.LoadIdentity)
     }
     
     override suspend fun handleIntent(intent: IdentityIntent) {
+        println("VOID_DEBUG: ViewModel received intent: $intent")
         when (intent) {
             is IdentityIntent.LoadIdentity -> loadIdentity()
             is IdentityIntent.Regenerate -> regenerateIdentity()
@@ -38,23 +40,29 @@ class IdentityViewModel(
     }
     
     private suspend fun loadIdentity() {
+        println("VOID_DEBUG: loadIdentity() called")
         updateState { copy(loadingState = LoadingState.Loading) }
-        
+
         try {
+            println("VOID_DEBUG: Calling generateIdentity(regenerate=false)")
             val identity = generateIdentity(regenerate = false)
-            updateState { 
+            println("VOID_DEBUG: Identity generated: ${identity.formatted}")
+            updateState {
                 copy(
                     loadingState = LoadingState.Success(identity),
                     identity = identity,
                     isNewIdentity = true
                 )
             }
-            
+            println("VOID_DEBUG: State updated with identity. canConfirm=${currentState.canConfirm}")
+
             // Emit event for other blocks
             eventBus.emit(IdentityCreated(identity.formatted))
-            
+
         } catch (e: Exception) {
-            updateState { 
+            println("VOID_DEBUG: Failed to generate identity: ${e.message}")
+            e.printStackTrace()
+            updateState {
                 copy(loadingState = LoadingState.Error(e.message ?: "Failed to generate identity"))
             }
         }
@@ -85,9 +93,15 @@ class IdentityViewModel(
     }
     
     private suspend fun confirmIdentity() {
-        if (currentState.identity == null) return
+        println("VOID_DEBUG: Processing Confirm Identity. Current identity: ${currentState.identity}")
         
+        if (currentState.identity == null) {
+            println("VOID_DEBUG: confirmIdentity ABORTED - Identity is null")
+            return
+        }
+
         updateState { copy(isConfirmed = true) }
+        println("VOID_DEBUG: Sending NavigateToNext effect")
         sendEffect(IdentityEffect.NavigateToNext)
     }
     
