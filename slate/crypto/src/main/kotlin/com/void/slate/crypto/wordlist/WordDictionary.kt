@@ -1,110 +1,17 @@
-package com.void.block.identity.domain
-
-import com.void.block.identity.data.IdentityRepository
-import com.void.slate.crypto.CryptoProvider
+package com.void.slate.crypto.wordlist
 
 /**
- * Use case for generating a new 3-word identity.
- */
-class GenerateIdentity(
-    private val repository: IdentityRepository,
-    private val dictionary: WordDictionary,
-    private val crypto: CryptoProvider
-) {
-    
-    /**
-     * Generate a new identity.
-     * 
-     * @param regenerate If true, generates a new identity even if one exists
-     * @return The generated identity
-     */
-    suspend operator fun invoke(regenerate: Boolean = false): Identity {
-        // Check for existing identity
-        if (!regenerate) {
-            repository.getIdentity()?.let { return it }
-        }
-        
-        // Generate new cryptographic seed
-        val seed = crypto.generateSeed(32)
-        
-        // Derive 3 word indices from seed
-        val wordIndices = deriveWordIndices(seed)
-        
-        // Get words from dictionary
-        val words = wordIndices.map { dictionary.getWord(it) }
-        
-        // Create identity
-        val identity = Identity(
-            words = words,
-            seed = seed,
-            createdAt = System.currentTimeMillis()
-        )
-        
-        // Save identity
-        repository.saveIdentity(identity)
-        
-        return identity
-    }
-    
-    private suspend fun deriveWordIndices(seed: ByteArray): List<Int> {
-        // Derive 3 indices, each in range 0..4095 (12 bits = 4096 words)
-        return listOf(
-            crypto.derive(seed, "word/0"),
-            crypto.derive(seed, "word/1"),
-            crypto.derive(seed, "word/2")
-        ).map { derived ->
-            // Take first 2 bytes and convert to 12-bit index
-            ((derived[0].toInt() and 0xFF) shl 4) or ((derived[1].toInt() and 0xF0) shr 4)
-        }
-    }
-}
-
-/**
- * The user's 3-word identity.
- */
-data class Identity(
-    val words: List<String>,
-    val seed: ByteArray,
-    val createdAt: Long
-) {
-    /**
-     * The formatted identity string (e.g., "ghost.paper.forty")
-     */
-    val formatted: String
-        get() = words.joinToString(".")
-    
-    /**
-     * Short form for display (e.g., "ghost.paper...")
-     */
-    val short: String
-        get() = "${words[0]}.${words[1]}..."
-    
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other !is Identity) return false
-        return words == other.words && seed.contentEquals(other.seed)
-    }
-    
-    override fun hashCode(): Int {
-        var result = words.hashCode()
-        result = 31 * result + seed.contentHashCode()
-        return result
-    }
-}
-
-/**
- * Dictionary of 4096 words for identity generation.
+ * BIP-39 English wordlist containing exactly 2048 words.
+ * Used for:
+ * - Generating 3-word identities in the Identity block
+ * - Generating 12/24-word recovery phrases in the Rhythm block
  *
- * Uses the BIP-39 English wordlist (2048 words) duplicated to reach 4096 words.
- * This provides 4096^3 = ~68 billion possible 3-word combinations.
+ * This is the official BIP-39 English wordlist from:
+ * https://github.com/bitcoin/bips/blob/master/bip-0039/english.txt
  */
-class WordDictionary {
+object WordDictionary {
 
-    /**
-     * BIP-39 English wordlist (2048 words).
-     * Source: https://github.com/bitcoin/bips/blob/master/bip-0039/english.txt
-     */
-    private val bip39Words = listOf(
+    val words: List<String> = listOf(
         "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract",
         "absurd", "abuse", "access", "accident", "account", "accuse", "achieve", "acid",
         "acoustic", "acquire", "across", "act", "action", "actor", "actress", "actual",
@@ -363,31 +270,69 @@ class WordDictionary {
         "yellow", "you", "young", "youth", "zebra", "zero", "zone", "zoo"
     )
 
-    /**
-     * Full 4096-word dictionary.
-     * Created by duplicating BIP-39 wordlist (2048 * 2 = 4096).
-     * This ensures compatibility with BIP-39 recovery while providing 4096^3 combinations.
-     */
-    private val words: List<String> = (bip39Words + bip39Words)
-
-    fun getWord(index: Int): String {
-        require(index in 0 until 4096) { "Index must be 0-4095" }
-        return words[index]
-    }
-
-    fun indexOf(word: String): Int {
-        return words.indexOf(word.lowercase())
-    }
-
-    fun isValidWord(word: String): Boolean {
-        return words.contains(word.lowercase())
-    }
-
-    val allWords: List<String> get() = words
     val wordCount: Int get() = words.size
 
+    /**
+     * Get word at index (wraps around if index >= wordCount).
+     */
+    fun wordAt(index: Int): String = words[index % wordCount]
+
+    /**
+     * Find index of a word (-1 if not found).
+     */
+    fun indexOf(word: String): Int = words.indexOf(word.lowercase())
+
+    /**
+     * Check if a word is in the dictionary.
+     */
+    fun isValidWord(word: String): Boolean = words.contains(word.lowercase())
+}
+
+/**
+ * Represents a 3-word identity (e.g., "ocean.tiger.moon").
+ * Used by the Identity block for user-friendly identities.
+ */
+data class ThreeWordIdentity(
+    val word1: String,
+    val word2: String,
+    val word3: String
+) {
+    override fun toString(): String = "$word1.$word2.$word3"
+
     companion object {
-        const val WORD_COUNT = 4096
-        const val TOTAL_COMBINATIONS = 4096L * 4096 * 4096  // ~68 billion
+        /**
+         * Parse a 3-word identity from string format.
+         * Returns null if format is invalid.
+         */
+        fun parse(identity: String): ThreeWordIdentity? {
+            val parts = identity.split(".")
+            if (parts.size != 3) return null
+            if (!parts.all { WordDictionary.isValidWord(it) }) return null
+            return ThreeWordIdentity(parts[0], parts[1], parts[2])
+        }
+
+        /**
+         * Generate a 3-word identity from seed bytes.
+         * Uses first 33 bits (11 bits per word).
+         */
+        fun fromSeed(seed: ByteArray): ThreeWordIdentity {
+            require(seed.size >= 5) { "Seed must be at least 5 bytes (40 bits) for 3 words" }
+
+            val bits = seed.toBitString()
+            val word1 = WordDictionary.wordAt(bits.substring(0, 11).toInt(2))
+            val word2 = WordDictionary.wordAt(bits.substring(11, 22).toInt(2))
+            val word3 = WordDictionary.wordAt(bits.substring(22, 33).toInt(2))
+
+            return ThreeWordIdentity(word1, word2, word3)
+        }
+    }
+}
+
+/**
+ * Extension function to convert ByteArray to bit string.
+ */
+internal fun ByteArray.toBitString(): String {
+    return joinToString("") { byte ->
+        (byte.toInt() and 0xFF).toString(2).padStart(8, '0')
     }
 }

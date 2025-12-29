@@ -30,7 +30,7 @@ include(":slate:design")
 // Comment out any block to remove it from the build
 // ═══════════════════════════════════════════════════════════════════
 include(":blocks:identity")      // 3-word identity system
-// include(":blocks:rhythm")        // Rhythm key authentication - TODO: Phase 1B
+include(":blocks:rhythm")        // Rhythm key authentication - Phase 1B ✅
 // include(":blocks:messaging")     // Core messaging - TODO: Phase 2A
 // include(":blocks:contacts")      // Contact management - TODO: Phase 2A
 // include(":blocks:decoy")         // Decoy mode for plausible deniability - TODO: Phase 3

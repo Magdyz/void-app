@@ -1,13 +1,14 @@
 package com.void.app.di
 
 import android.content.Context
+import com.void.app.AppStateManager
 import com.void.app.RuntimeFeatureFlags
 // import com.void.block.contacts.contactsModule
 // import com.void.block.decoy.decoyModule
 import com.void.block.identity.identityModule
 // import com.void.block.messaging.messagingModule
 // import com.void.block.onboarding.onboardingModule
-// import com.void.block.rhythm.rhythmModule
+import com.void.block.rhythm.rhythmModule
 import com.void.slate.block.BlockRegistry
 import com.void.slate.block.FeatureFlags
 import com.void.slate.crypto.CryptoProvider
@@ -17,6 +18,7 @@ import com.void.slate.event.InMemoryEventBus
 import com.void.slate.event.LoggingEventBus
 import com.void.slate.navigation.Navigator
 import com.void.slate.navigation.VoidNavigator
+import com.void.slate.crypto.keystore.KeystoreManager
 import com.void.slate.storage.SecureStorage
 import com.void.slate.storage.impl.SqlCipherStorage
 import org.koin.dsl.module
@@ -53,6 +55,12 @@ val appModule = module {
     // Secure Storage - encrypted storage backend
     single<SecureStorage> { SqlCipherStorage(get<Context>()) }
 
+    // Keystore Manager - hardware-backed key storage
+    single { KeystoreManager(get<Context>()) }
+
+    // App State Manager - determines navigation flow
+    single { AppStateManager(rhythmSecurityManager = get()) }
+
     // ═══════════════════════════════════════════════════════════════════
     // Block Modules (each block registers its own dependencies)
     // ═══════════════════════════════════════════════════════════════════
@@ -62,7 +70,7 @@ val appModule = module {
     // TODO: Uncomment as blocks are implemented
     includes(
         identityModule,
-        // rhythmModule,
+        rhythmModule,
         // messagingModule,
         // contactsModule,
         // decoyModule,

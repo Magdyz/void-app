@@ -16,13 +16,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import com.void.slate.design.components.VoidButton
+import com.void.slate.design.components.VoidIdentityCard
+import com.void.slate.design.components.VoidSecondaryButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -107,11 +108,16 @@ fun IdentityScreen(
             }
             is LoadingState.Success, is LoadingState.Idle -> {
                 state.identity?.let { identity ->
-                    IdentityCard(
-                        identity = identity.formatted,
-                        isRegenerating = state.isRegenerating,
-                        onCopy = { viewModel.onIntent(IdentityIntent.CopyToClipboard) }
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.onIntent(IdentityIntent.CopyToClipboard) }
+                    ) {
+                        VoidIdentityCard(
+                            identity = identity.formatted,
+                            subtitle = "Tap to copy"
+                        )
+                    }
                 }
             }
         }
@@ -124,7 +130,7 @@ fun IdentityScreen(
             enter = fadeIn(),
             exit = fadeOut()
         ) {
-            OutlinedButton(
+            VoidSecondaryButton(
                 onClick = { viewModel.onIntent(IdentityIntent.Regenerate) },
                 enabled = !state.isRegenerating
             ) {
@@ -151,7 +157,7 @@ fun IdentityScreen(
         Spacer(modifier = Modifier.weight(1f))
         
         // Confirm Button
-        Button(
+        VoidButton(
             onClick = { viewModel.onIntent(IdentityIntent.Confirm) },
             enabled = state.canConfirm,
             modifier = Modifier.fillMaxWidth()
@@ -161,61 +167,3 @@ fun IdentityScreen(
     }
 }
 
-/**
- * Card displaying the 3-word identity.
- */
-@Composable
-private fun IdentityCard(
-    identity: String,
-    isRegenerating: Boolean,
-    onCopy: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable(onClick = onCopy)
-            .padding(24.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // The 3 words
-            Row(
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                identity.split(".").forEachIndexed { index, word ->
-                    if (index > 0) {
-                        Text(
-                            text = ".",
-                            fontSize = 28.sp,
-                            fontWeight = FontWeight.Light,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    Text(
-                        text = word,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isRegenerating) {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        }
-                    )
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            Text(
-                text = "Tap to copy",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}

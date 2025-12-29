@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import android.util.Log
 import com.void.slate.storage.SecureStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -149,23 +150,49 @@ class SqlCipherStorage(
         val ivBase64 = prefs.getString(PREF_DB_KEY_IV, null)
 
         return if (encryptedKeyBase64 != null && ivBase64 != null) {
-            // Decrypt existing database key
-            val encryptedKey = Base64.decode(encryptedKeyBase64, Base64.NO_WRAP)
-            val iv = Base64.decode(ivBase64, Base64.NO_WRAP)
-            decryptDatabaseKey(encryptedKey, iv)
+            // Try to decrypt existing database key
+            try {
+                val encryptedKey = Base64.decode(encryptedKeyBase64, Base64.NO_WRAP)
+                val iv = Base64.decode(ivBase64, Base64.NO_WRAP)
+                decryptDatabaseKey(encryptedKey, iv)
+            } catch (e: Exception) {
+                // Decryption failed (e.g., Keystore key was deleted but encrypted key still exists)
+                // This can happen after app reinstall or data clear
+                Log.w(TAG, "Failed to decrypt existing database key, generating new one", e)
+
+                // Clear old encrypted key and database
+                prefs.edit()
+                    .remove(PREF_ENCRYPTED_DB_KEY)
+                    .remove(PREF_DB_KEY_IV)
+                    .apply()
+
+                // Delete old database file if it exists
+                context.getDatabasePath(DATABASE_NAME)?.delete()
+
+                // Generate new database key
+                generateNewDatabaseKey()
+            }
         } else {
             // Generate and encrypt new database key
-            val dbKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
-            val (encryptedKey, iv) = encryptDatabaseKey(dbKey)
-
-            // Store encrypted key
-            prefs.edit()
-                .putString(PREF_ENCRYPTED_DB_KEY, Base64.encodeToString(encryptedKey, Base64.NO_WRAP))
-                .putString(PREF_DB_KEY_IV, Base64.encodeToString(iv, Base64.NO_WRAP))
-                .apply()
-
-            dbKey
+            generateNewDatabaseKey()
         }
+    }
+
+    /**
+     * Generate a new database key and encrypt it.
+     */
+    private fun generateNewDatabaseKey(): ByteArray {
+        val prefs = context.getSharedPreferences("void_storage_prefs", Context.MODE_PRIVATE)
+        val dbKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
+        val (encryptedKey, iv) = encryptDatabaseKey(dbKey)
+
+        // Store encrypted key
+        prefs.edit()
+            .putString(PREF_ENCRYPTED_DB_KEY, Base64.encodeToString(encryptedKey, Base64.NO_WRAP))
+            .putString(PREF_DB_KEY_IV, Base64.encodeToString(iv, Base64.NO_WRAP))
+            .apply()
+
+        return dbKey
     }
 
     /**
@@ -232,6 +259,7 @@ class SqlCipherStorage(
     }
 
     companion object {
+        private const val TAG = "SqlCipherStorage"
         private const val DATABASE_NAME = "void_secure.db"
         private const val PREF_ENCRYPTED_DB_KEY = "encrypted_db_key"
         private const val PREF_DB_KEY_IV = "db_key_iv"

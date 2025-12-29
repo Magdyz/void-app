@@ -65,8 +65,9 @@ dependencies {
 
     // Blocks - all feature modules
     implementation(project(":blocks:identity"))
-    // Phase 1B+ blocks (not implemented yet):
-    // implementation(project(":blocks:rhythm"))
+    implementation(project(":blocks:rhythm"))  // Phase 1B: Rhythm authentication
+
+    // Phase 2+ blocks (not implemented yet):
     // implementation(project(":blocks:messaging"))
     // implementation(project(":blocks:contacts"))
     // implementation(project(":blocks:decoy"))

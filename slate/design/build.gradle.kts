@@ -14,6 +14,9 @@ dependencies {
     // Slate core
     api(project(":slate:core"))
 
+    // AndroidX Core for WindowCompat
+    implementation("androidx.core:core-ktx:1.12.0")
+
     // Compose
     implementation(platform(libs.compose.bom))
     implementation(libs.bundles.compose)
