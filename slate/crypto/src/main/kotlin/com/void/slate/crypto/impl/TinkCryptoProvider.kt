@@ -1,6 +1,9 @@
 package com.void.slate.crypto.impl
 
 import com.google.crypto.tink.Aead
+import com.google.crypto.tink.BinaryKeysetReader
+import com.google.crypto.tink.BinaryKeysetWriter
+import com.google.crypto.tink.CleartextKeysetHandle
 import com.google.crypto.tink.KeysetHandle
 import com.google.crypto.tink.PublicKeySign
 import com.google.crypto.tink.PublicKeyVerify
@@ -15,6 +18,8 @@ import com.void.slate.crypto.CryptoProvider
 import com.void.slate.crypto.EncryptedData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.security.GeneralSecurityException
 import java.security.MessageDigest
@@ -113,14 +118,16 @@ class TinkCryptoProvider : CryptoProvider {
     override suspend fun generateKeyPair(): com.void.slate.crypto.KeyPair = withContext(Dispatchers.Default) {
         try {
             // Generate Ed25519 key pair for signatures
-            val keysetHandle = KeysetHandle.generateNew(
+            val privateKeysetHandle = KeysetHandle.generateNew(
                 Ed25519PrivateKeyManager.ed25519Template()
             )
 
-            // Extract public and private keys
-            // Note: This is a simplified version. In production, you'd use proper key serialization
-            val privateKeyBytes = keysetHandle.toString().toByteArray()
-            val publicKeyBytes = keysetHandle.publicKeysetHandle.toString().toByteArray()
+            // Get public keyset handle
+            val publicKeysetHandle = privateKeysetHandle.publicKeysetHandle
+
+            // Serialize keysets to bytes
+            val privateKeyBytes = serializeKeyset(privateKeysetHandle)
+            val publicKeyBytes = serializeKeyset(publicKeysetHandle)
 
             com.void.slate.crypto.KeyPair(
                 publicKey = publicKeyBytes,
@@ -133,9 +140,14 @@ class TinkCryptoProvider : CryptoProvider {
 
     override suspend fun sign(data: ByteArray, privateKey: ByteArray): ByteArray = withContext(Dispatchers.Default) {
         try {
-            // This is a simplified implementation
-            // In production, you'd properly deserialize the keyset
-            throw NotImplementedError("Signature support coming in Phase 2")
+            // Deserialize the private keyset
+            val keysetHandle = deserializeKeyset(privateKey)
+
+            // Get the signing primitive
+            val signer = keysetHandle.getPrimitive(PublicKeySign::class.java)
+
+            // Sign the data
+            signer.sign(data)
         } catch (e: GeneralSecurityException) {
             throw RuntimeException("Signing failed", e)
         }
@@ -143,11 +155,18 @@ class TinkCryptoProvider : CryptoProvider {
 
     override suspend fun verify(data: ByteArray, signature: ByteArray, publicKey: ByteArray): Boolean = withContext(Dispatchers.Default) {
         try {
-            // This is a simplified implementation
-            // In production, you'd properly deserialize the keyset
-            throw NotImplementedError("Signature verification support coming in Phase 2")
+            // Deserialize the public keyset
+            val keysetHandle = deserializeKeyset(publicKey)
+
+            // Get the verification primitive
+            val verifier = keysetHandle.getPrimitive(PublicKeyVerify::class.java)
+
+            // Verify the signature
+            verifier.verify(signature, data)
+            true // If no exception thrown, verification succeeded
         } catch (e: GeneralSecurityException) {
-            throw RuntimeException("Verification failed", e)
+            // Verification failed
+            false
         }
     }
 
@@ -189,5 +208,33 @@ class TinkCryptoProvider : CryptoProvider {
             cipher.init(javax.crypto.Cipher.DECRYPT_MODE, secretKey, gcmSpec)
             return cipher.doFinal(ciphertext)
         }
+    }
+
+    /**
+     * Serialize a KeysetHandle to bytes.
+     *
+     * WARNING: This uses CleartextKeysetHandle which stores keys unencrypted.
+     * In production, consider using encrypted keyset storage.
+     */
+    private fun serializeKeyset(keysetHandle: KeysetHandle): ByteArray {
+        val outputStream = ByteArrayOutputStream()
+        CleartextKeysetHandle.write(
+            keysetHandle,
+            BinaryKeysetWriter.withOutputStream(outputStream)
+        )
+        return outputStream.toByteArray()
+    }
+
+    /**
+     * Deserialize a KeysetHandle from bytes.
+     *
+     * WARNING: This uses CleartextKeysetHandle which expects unencrypted keys.
+     * In production, consider using encrypted keyset storage.
+     */
+    private fun deserializeKeyset(keysetBytes: ByteArray): KeysetHandle {
+        val inputStream = ByteArrayInputStream(keysetBytes)
+        return CleartextKeysetHandle.read(
+            BinaryKeysetReader.withInputStream(inputStream)
+        )
     }
 }

@@ -252,6 +252,112 @@ class TinkCryptoProviderTest {
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // Signature Tests (Phase 2 Preparation)
+    // ═══════════════════════════════════════════════════════════════════
+
+    @Test
+    fun `sign produces non-empty signature`() = runTest {
+        val keyPair = crypto.generateKeyPair()
+        val data = "Message to sign".toByteArray()
+
+        val signature = crypto.sign(data, keyPair.privateKey)
+
+        assertThat(signature).isNotEmpty()
+    }
+
+    @Test
+    fun `verify returns true for valid signature`() = runTest {
+        val keyPair = crypto.generateKeyPair()
+        val data = "Message to sign".toByteArray()
+
+        val signature = crypto.sign(data, keyPair.privateKey)
+        val isValid = crypto.verify(data, signature, keyPair.publicKey)
+
+        assertThat(isValid).isTrue()
+    }
+
+    @Test
+    fun `verify returns false for invalid signature`() = runTest {
+        val keyPair = crypto.generateKeyPair()
+        val data = "Message to sign".toByteArray()
+        val invalidSignature = ByteArray(64) { 0 } // Random invalid signature
+
+        val isValid = crypto.verify(data, invalidSignature, keyPair.publicKey)
+
+        assertThat(isValid).isFalse()
+    }
+
+    @Test
+    fun `verify returns false when data is tampered`() = runTest {
+        val keyPair = crypto.generateKeyPair()
+        val originalData = "Original message".toByteArray()
+        val tamperedData = "Tampered message".toByteArray()
+
+        val signature = crypto.sign(originalData, keyPair.privateKey)
+        val isValid = crypto.verify(tamperedData, signature, keyPair.publicKey)
+
+        assertThat(isValid).isFalse()
+    }
+
+    @Test
+    fun `verify returns false with wrong public key`() = runTest {
+        val keyPair1 = crypto.generateKeyPair()
+        val keyPair2 = crypto.generateKeyPair()
+        val data = "Message".toByteArray()
+
+        val signature = crypto.sign(data, keyPair1.privateKey)
+        val isValid = crypto.verify(data, signature, keyPair2.publicKey)
+
+        assertThat(isValid).isFalse()
+    }
+
+    @Test
+    fun `sign produces deterministic signature for same data`() = runTest {
+        val keyPair = crypto.generateKeyPair()
+        val data = "Consistent message".toByteArray()
+
+        val signature1 = crypto.sign(data, keyPair.privateKey)
+        val signature2 = crypto.sign(data, keyPair.privateKey)
+
+        // Ed25519 signatures are deterministic
+        assertThat(signature1).isEqualTo(signature2)
+    }
+
+    @Test
+    fun `sign produces different signatures for different data`() = runTest {
+        val keyPair = crypto.generateKeyPair()
+        val data1 = "Message 1".toByteArray()
+        val data2 = "Message 2".toByteArray()
+
+        val signature1 = crypto.sign(data1, keyPair.privateKey)
+        val signature2 = crypto.sign(data2, keyPair.privateKey)
+
+        assertThat(signature1).isNotEqualTo(signature2)
+    }
+
+    @Test
+    fun `verify handles empty data`() = runTest {
+        val keyPair = crypto.generateKeyPair()
+        val emptyData = ByteArray(0)
+
+        val signature = crypto.sign(emptyData, keyPair.privateKey)
+        val isValid = crypto.verify(emptyData, signature, keyPair.publicKey)
+
+        assertThat(isValid).isTrue()
+    }
+
+    @Test
+    fun `verify handles large data`() = runTest {
+        val keyPair = crypto.generateKeyPair()
+        val largeData = ByteArray(1024 * 1024) { it.toByte() } // 1 MB
+
+        val signature = crypto.sign(largeData, keyPair.privateKey)
+        val isValid = crypto.verify(largeData, signature, keyPair.publicKey)
+
+        assertThat(isValid).isTrue()
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // Integration Tests
     // ═══════════════════════════════════════════════════════════════════
 
@@ -296,5 +402,34 @@ class TinkCryptoProviderTest {
         // Can decrypt template
         val decrypted = crypto.decrypt(encrypted, verifyKey)
         assertThat(decrypted).isEqualTo(template)
+    }
+
+    @Test
+    fun `full identity verification flow for Phase 2 networking`() = runTest {
+        // Simulate Phase 2 use case: User A sends a message to User B
+        // User A must prove their identity cryptographically
+
+        // User A generates their identity keypair
+        val userAKeyPair = crypto.generateKeyPair()
+        val userAIdentity = "alpha.bravo.charlie" // 3-word identity
+
+        // User A creates a message and signs it
+        val message = "Hello from User A!".toByteArray()
+        val signature = crypto.sign(message, userAKeyPair.privateKey)
+
+        // User B receives: message, signature, and User A's public key
+        // User B verifies the message came from User A
+        val isValidSignature = crypto.verify(message, signature, userAKeyPair.publicKey)
+        assertThat(isValidSignature).isTrue()
+
+        // If someone tampers with the message, verification fails
+        val tamperedMessage = "Hello from User B!".toByteArray()
+        val isTamperedValid = crypto.verify(tamperedMessage, signature, userAKeyPair.publicKey)
+        assertThat(isTamperedValid).isFalse()
+
+        // If someone tries to impersonate User A with a different keypair, verification fails
+        val attackerKeyPair = crypto.generateKeyPair()
+        val isImpersonatorValid = crypto.verify(message, signature, attackerKeyPair.publicKey)
+        assertThat(isImpersonatorValid).isFalse()
     }
 }
