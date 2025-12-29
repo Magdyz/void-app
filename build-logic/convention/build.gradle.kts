@@ -6,6 +6,9 @@ dependencies {
     compileOnly(libs.android.gradle.plugin)
     compileOnly(libs.kotlin.gradle.plugin)
     compileOnly(libs.compose.gradle.plugin)
+
+    // Add serialization plugin to classpath
+    implementation("org.jetbrains.kotlin:kotlin-serialization:2.0.21")
 }
 
 gradlePlugin {

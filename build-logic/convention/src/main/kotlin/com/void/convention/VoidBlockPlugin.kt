@@ -23,6 +23,7 @@ class VoidBlockPlugin : Plugin<Project> {
                 apply("com.android.library")
                 apply("org.jetbrains.kotlin.android")
                 apply("org.jetbrains.kotlin.plugin.compose")
+                apply("org.jetbrains.kotlin.plugin.serialization")
             }
             
             extensions.configure<LibraryExtension> {
@@ -56,14 +57,15 @@ class VoidBlockPlugin : Plugin<Project> {
                 add("implementation", project(":slate:crypto"))
                 add("implementation", project(":slate:storage"))
                 add("implementation", project(":slate:design"))
-                
+
                 // Standard dependencies for all blocks
                 add("implementation", libs.findBundle("compose").get())
                 add("implementation", libs.findBundle("koin").get())
                 add("implementation", libs.findLibrary("lifecycle-viewmodel-compose").get())
                 add("implementation", libs.findLibrary("navigation-compose").get())
                 add("implementation", libs.findLibrary("coroutines-core").get())
-                
+                add("implementation", libs.findLibrary("kotlinx-serialization-json").get())
+
                 // Testing
                 add("testImplementation", libs.findBundle("testing").get())
             }

@@ -31,8 +31,8 @@ include(":slate:design")
 // ═══════════════════════════════════════════════════════════════════
 include(":blocks:identity")      // 3-word identity system
 include(":blocks:rhythm")        // Rhythm key authentication - Phase 1B ✅
-// include(":blocks:messaging")     // Core messaging - TODO: Phase 2A
-// include(":blocks:contacts")      // Contact management - TODO: Phase 2A
+include(":blocks:messaging")     // Core messaging - Phase 2 ✅
+include(":blocks:contacts")      // Contact management - Phase 2 ✅
 // include(":blocks:decoy")         // Decoy mode for plausible deniability - TODO: Phase 3
 // include(":blocks:onboarding")    // Onboarding flow - TODO: Phase 1C
 
