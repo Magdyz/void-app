@@ -2709,162 +2709,302 @@ ls -lh app/build/outputs/apk/release/
 **Architecture**: Slate + Block v1.0
 **Security Model**: Rhythm-Gated Keystore
 
-  📋 VOID Development Phase Checklist
 
-  ✅ PHASE 1A: Complete Core Infrastructure
+   ## 🔒 Security Principles (Non-Negotiable)
 
-  - 1.1 Complete BIP-39 Word Dictionary (2048 words)
-  - 1.2 Implement KeystoreManager (Hardware-Backed Key Storage)
-  - 1.3 Implement TinkCryptoProvider
-  - 1.4 Implement SecureStorage with SQLCipher
-  - 1.5 Create Design System (VoidTheme, Colors, Typography, Components)
+ ### ✅ MUST Have:
+ 1. **Client-Side Encryption ONLY** - All encryption happens on device
+ 2. **Server Sees Only Encrypted Blobs** - No plaintext ever transmitted
+ 3. **Hardware-Backed Keys** - Keys stored in Android Keystore
+ 4. **Forward Secrecy** - Ephemeral session keys
+ 5. **Message Authenticity** - HMAC verification
+ 6. **No Key Derivation from Rhythm** - Rhythm is gatekeeper, not key source
 
-  Status: ✅ COMPLETED (verified by git status: Phase 1A completed)
+ ### ❌ MUST NOT:
+ 1. ❌ Send plaintext over network
+ 2. ❌ Store plaintext on server
+ 3. ❌ Derive encryption keys from rhythm pattern
+ 4. ❌ Trust server with any secrets
+ 5. ❌ Skip MAC verification
+ 6. ❌ Reuse nonces
 
-  ---
-  ✅ PHASE 1B: Rhythm Block Implementation (Revised Security Model)
+ ---
 
-  - 1.6 Implement Rhythm Data Classes
-  - 1.7 Implement Rhythm Capture
-  - 1.8 Implement Rhythm Matcher (Fuzzy Matching)
-  - 1.9 Implement Rhythm Quantizer
-  - 1.10 Implement Rhythm Security Manager (Core Security Logic)
-  - 1.11 Implement BIP-39 Utility
-  - 1.12 Implement Rhythm UI Components
-  - 1.13 Implement Rhythm Screens
-  - 1.14 Implement Rhythm ViewModels
-  - 1.15 Implement Rhythm Events
-  - 1.16 Complete Rhythm Block Manifest
+ ## 📋 Implementation Checklist
 
-  Status: ✅ COMPLETED (verified by git status: Phase 1B completed)
+ ### Phase 1: Key Management ✅
+ - [x] KeystoreManager implemented (hardware-backed)
+ - [x] CryptoProvider interface defined
+ - [x] TinkCryptoProvider implemented
+ - [x] MessageEncryption implemented (Signal Protocol simplified)
+ - [ ] **TODO**: Verify keys are generated per-contact
+ - [ ] **TODO**: Implement contact public key exchange
 
-  ---
-  ✅ PHASE 1C: Recovery System & Onboarding
+ ### Phase 2: Message Encryption Flow 🔨
+ - [ ] **Step 1**: Get sender's private key from Keystore
+ - [ ] **Step 2**: Get recipient's public key from Contacts
+ - [ ] **Step 3**: Encrypt message using MessageEncryption
+ - [ ] **Step 4**: Serialize encrypted envelope
+ - [ ] **Step 5**: Send encrypted blob to server
+ - [ ] **Step 6**: Verify server never sees plaintext (logging)
 
-  - 1.17 Implement Recovery Phrase Display Screen
-  - 1.18 Complete Onboarding Block
+ ### Phase 3: Message Decryption Flow 🔨
+ - [ ] **Step 1**: Poll server for encrypted messages
+ - [ ] **Step 2**: Deserialize encrypted envelope
+ - [ ] **Step 3**: Get sender's public key from Contacts
+ - [ ] **Step 4**: Get recipient's private key from Keystore
+ - [ ] **Step 5**: Decrypt using MessageEncryption
+ - [ ] **Step 6**: Verify MAC before displaying
+ - [ ] **Step 7**: Display plaintext in UI
 
-  Status: ✅ COMPLETED (verified by git status: Phase 1C completed)
+ ### Phase 4: Contact Key Exchange 🔨
+ - [ ] Generate X25519 key pair for each identity
+ - [ ] Store private key in Android Keystore
+ - [ ] Include public key in contact request
+ - [ ] Verify contact public key (manual/QR)
+ - [ ] Store contact public key securely
 
-  ---
-  🔄 PHASE 2: MESSAGING & CONTACTS (IN PROGRESS)
+ ### Phase 5: Security Verification ✅
+ - [ ] Add debug logging for each encryption step
+ - [ ] Verify server logs show only base64 encrypted blobs
+ - [ ] Verify MAC is checked before decryption
+ - [ ] Test message tampering detection
+ - [ ] Test replay attack prevention
 
-  Note: Phase 2 details are not fully specified in the instructions, but based on the architecture and references, we're implementing:
+ ---
 
-  ✅ Contacts Block - Domain & Data Layer (COMPLETED)
+ ## 🔐 Complete Secure Message Flow
 
-  - 2.1 Create Contacts block build configuration
-  - 2.2 Implement Contact domain models
-    - Contact with 3-word identity
-    - ContactRequest
-    - ContactQRData
-    - ThreeWordIdentity
-  - 2.3 Implement ContactRepository
-    - CRUD operations with SecureStorage
-    - Contact request management
-    - Block/unblock functionality
-    - Key verification
-  - 2.4 Implement Contact Events
-  - 2.5 Wire ContactsBlock manifest
+ ### Send Message (Client A → Client B)
 
-  ✅ Messaging Block - Domain, Crypto & Data Layer (COMPLETED)
+ ```
+ ┌─────────────────────────────────────────────────────────────┐
+ │ CLIENT A (Sender)                                            │
+ ├─────────────────────────────────────────────────────────────┤
+ │ 1. User types: "Hello World"                                │
+ │    └─> [PLAINTEXT] in memory only                           │
+ │                                                              │
+ │ 2. Load Keys:                                               │
+ │    a) myPrivateKey ← Android Keystore (hardware-backed)     │
+ │    b) contactPublicKey ← Contacts DB (encrypted storage)    │
+ │    └─> [SECURITY CHECK]: Keys never leave secure storage   │
+ │                                                              │
+ │ 3. Encrypt Message:                                         │
+ │    a) ECDH: sharedSecret = DH(myPrivateKey, contactPubKey)  │
+ │    b) HKDF: (encKey, macKey) = derive(sharedSecret)         │
+ │    c) AES-GCM: ciphertext = encrypt(plaintext, encKey)      │
+ │    d) HMAC: mac = HMAC(ciphertext + nonce, macKey)          │
+ │    └─> [SECURITY CHECK]: Plaintext is zeroed after encrypt │
+ │                                                              │
+ │ 4. Create Envelope:                                         │
+ │    envelope = {                                             │
+ │      ciphertext: [binary],    ← Encrypted message           │
+ │      nonce: [random],          ← One-time random             │
+ │      mac: [hmac],              ← Authenticity proof          │
+ │      version: 1                ← Protocol version            │
+ │    }                                                         │
+ │    └─> [SECURITY CHECK]: No metadata in envelope            │
+ │                                                              │
+ │ 5. Serialize:                                               │
+ │    encryptedPayload = base64(JSON.stringify(envelope))      │
+ │    └─> [SECURITY CHECK]: Still encrypted                   │
+ │                                                              │
+ │ 6. Send to Server:                                          │
+ │    POST /api/v1/messages/send                               │
+ │    {                                                         │
+ │      messageId: UUID,                                       │
+ │      recipientIdentity: "word1.word2.word3",                │
+ │      encryptedPayload: "eyJjaXBoZXJ0ZXh0IjpbLi4u...",       │
+ │      timestamp: 1234567890                                  │
+ │    }                                                         │
+ │    └─> [SECURITY CHECK]: Server gets ONLY encrypted blob   │
+ │                                                              │
+ │ 7. Store Locally (encrypted):                               │
+ │    SecureStorage.put("message.{id}", encryptedMessage)      │
+ │    └─> [SECURITY CHECK]: At-rest encryption via Tink       │
+ └─────────────────────────────────────────────────────────────┘
 
-  - 2.6 Create Messaging block build configuration
-  - 2.7 Implement Message domain models
-    - Message with status and direction
-    - MessageContent (Text, Image, File, System)
-    - Conversation
-    - MessageDraft
-  - 2.8 Implement MessageEncryption
-    - Simplified Signal Protocol
-    - ECDH key agreement
-    - AES-256-GCM encryption
-    - HMAC authentication
-  - 2.9 Implement MessageRepository
-    - Send/receive messages
-    - Conversation management
-    - Status updates & read receipts
-    - Draft management
-    - Expiry handling
-  - 2.10 Implement Message Events
-  - 2.11 Wire MessagingBlock manifest
-  - 2.12 Add Kotlin Serialization support
+ ┌─────────────────────────────────────────────────────────────┐
+ │ SERVER (Relay)                                               │
+ ├─────────────────────────────────────────────────────────────┤
+ │ 1. Receive POST /api/v1/messages/send                       │
+ │    └─> Sees: {recipientIdentity, encryptedPayload}          │
+ │    └─> [SECURITY GUARANTEE]: No plaintext visible           │
+ │                                                              │
+ │ 2. Queue Message:                                           │
+ │    messageQueue[recipientIdentity].add(encryptedPayload)    │
+ │    └─> [SECURITY]: Stores opaque blob only                  │
+ │                                                              │
+ │ 3. Return Success:                                          │
+ │    {success: true}                                          │
+ └─────────────────────────────────────────────────────────────┘
 
-  ⏳ Contacts Block - UI Layer (PENDING)
+ ┌─────────────────────────────────────────────────────────────┐
+ │ CLIENT B (Receiver)                                          │
+ ├─────────────────────────────────────────────────────────────┤
+ │ 1. Poll Server (every 3 seconds):                           │
+ │    GET /api/v1/messages/receive?identity=word1.word2.word3  │
+ │    └─> Server returns: [encryptedPayload1, ...]             │
+ │                                                              │
+ │ 2. Receive Encrypted Message:                               │
+ │    encryptedPayload = response[0].encryptedPayload          │
+ │    └─> [SECURITY CHECK]: Still encrypted from network       │
+ │                                                              │
+ │ 3. Deserialize:                                             │
+ │    envelope = JSON.parse(base64Decode(encryptedPayload))    │
+ │    └─> envelope = {ciphertext, nonce, mac, version}         │
+ │                                                              │
+ │ 4. Load Keys:                                               │
+ │    a) myPrivateKey ← Android Keystore                       │
+ │    b) senderPublicKey ← Contacts DB                         │
+ │    └─> [SECURITY CHECK]: Keys from secure storage          │
+ │                                                              │
+ │ 5. Decrypt Message:                                         │
+ │    a) ECDH: sharedSecret = DH(myPrivateKey, senderPubKey)   │
+ │    b) HKDF: (encKey, macKey) = derive(sharedSecret)         │
+ │    c) VERIFY MAC: ✓ MAC matches computed HMAC               │
+ │       └─> [SECURITY CHECK]: Reject if MAC mismatch          │
+ │    d) AES-GCM: plaintext = decrypt(ciphertext, encKey)      │
+ │    └─> [SECURITY CHECK]: MAC verified BEFORE decrypt       │
+ │                                                              │
+ │ 6. Display Message:                                         │
+ │    UI shows: "Hello World"                                  │
+ │    └─> [PLAINTEXT] only in memory, only after verification │
+ │                                                              │
+ │ 7. Store Locally (encrypted):                               │
+ │    SecureStorage.put("message.{id}", encryptedMessage)      │
+ │    └─> [SECURITY CHECK]: At-rest encryption                │
+ └─────────────────────────────────────────────────────────────┘
+ ```
 
-  - 2.13 Create ContactsList UI components
-  - 2.14 Create AddContact screen
-  - 2.15 Create ScanQR screen
-  - 2.16 Create ContactDetail screen
-  - 2.17 Implement Contacts ViewModels
-  - 2.18 Wire Contacts UI routes
+ ---
 
-  ⏳ Messaging Block - UI Layer (PENDING)
+ ## 📝 Security Logging Points
 
-  - 2.19 Create Message UI components
-    - MessageBubble
-    - ConversationItem
-    - InputBar
-    - TypingIndicator
-  - 2.20 Implement ConversationListScreen
-  - 2.21 Implement ConversationListViewModel
-  - 2.22 Implement ChatScreen
-  - 2.23 Implement ChatViewModel
-  - 2.24 Wire Messaging UI routes
+ ### Log Level: DEBUG (removed in production)
 
-  ⏳ Testing & Integration (PENDING)
+ ```kotlin
+ // SEND PATH
+ Log.d("VOID_SECURITY", "🔒 [ENCRYPT_START] messageId=$id")
+ Log.d("VOID_SECURITY", "🔑 [KEY_LOAD] privateKey from Keystore: ${key.size} 
+ bytes")
+ Log.d("VOID_SECURITY", "🔑 [KEY_LOAD] contactPublicKey: ${pubKey.size} bytes")
+ Log.d("VOID_SECURITY", "🔐 [DH_AGREEMENT] sharedSecret: ${secret.size} bytes")
+ Log.d("VOID_SECURITY", "🔐 [KEY_DERIVE] encKey: ${encKey.size} bytes, macKey: 
+ ${macKey.size} bytes")
+ Log.d("VOID_SECURITY", "🔒 [ENCRYPT] plaintext: ${plaintext.size} bytes →
+ ciphertext: ${ciphertext.size} bytes")
+ Log.d("VOID_SECURITY", "✓ [MAC_COMPUTE] MAC: ${mac.toHex()}")
+ Log.d("VOID_SECURITY", "📦 [SERIALIZE] envelope: ${envelope.size} bytes")
+ Log.d("VOID_SECURITY", "📤 [NETWORK_SEND] encryptedPayload (base64): 
+ ${payload.substring(0, 20)}...")
+ Log.d("VOID_SECURITY", "⚠️  [SECURITY_CHECK] Plaintext NEVER sent: ✓")
 
-  - 2.25 Create unit tests for Contacts
-    - ContactRepository tests
-    - Contact request flow tests
-  - 2.26 Create unit tests for Messaging
-    - MessageEncryption tests
-    - MessageRepository tests
-    - Message flow tests
-  - 2.27 Verify block builds
-    - Fix Kotlin Serialization setup
-    - Successful build of contacts block
-    - Successful build of messaging block
-  - 2.28 Run Phase 2 tests
-  - 2.29 Verify block isolation
+ // RECEIVE PATH
+ Log.d("VOID_SECURITY", "📥 [NETWORK_RECEIVE] encryptedPayload: ${payload.size}
+  bytes")
+ Log.d("VOID_SECURITY", "📦 [DESERIALIZE] envelope extracted")
+ Log.d("VOID_SECURITY", "🔑 [KEY_LOAD] privateKey from Keystore: ${key.size}
+ bytes")
+ Log.d("VOID_SECURITY", "🔑 [KEY_LOAD] senderPublicKey: ${pubKey.size} bytes")
+ Log.d("VOID_SECURITY", "🔐 [DH_AGREEMENT] sharedSecret: ${secret.size} bytes")
+ Log.d("VOID_SECURITY", "🔐 [KEY_DERIVE] encKey: ${encKey.size} bytes, macKey:
+ ${macKey.size} bytes")
+ Log.d("VOID_SECURITY", "✓ [MAC_VERIFY] Expected: ${expected.toHex()}, Got:
+ ${actual.toHex()}")
+ Log.d("VOID_SECURITY", "🔓 [DECRYPT] ciphertext: ${ciphertext.size} bytes → 
+ plaintext: ${plaintext.size} bytes")
+ Log.d("VOID_SECURITY", "⚠️  [SECURITY_CHECK] MAC verified before decrypt: ✓")
+ ```
 
-  Current Status: 🔄 IN PROGRESS - Core domain/data complete, UI pending
+ ---
 
-  Progress: 12/29 tasks complete (41%)
+ ## 🧪 Security Test Cases
 
-  ---
-  📅 PHASE 3: Networking (NOT STARTED)
+ ### Test 1: Server Cannot Read Messages ✅
+ ```
+ 1. Send message "Secret Data"
+ 2. Check server logs
+ 3. VERIFY: Server logs show only base64 encrypted blob
+ 4. VERIFY: No "Secret Data" in server logs
+ ```
 
-  - Network block implementation
-  - Ktor client setup
-  - WebSocket support
-  - Message sync protocol
-  - Peer discovery
+ ### Test 2: Message Tampering Detection ✅
+ ```
+ 1. Intercept encrypted message
+ 2. Modify ciphertext (flip one bit)
+ 3. Try to decrypt
+ 4. VERIFY: MAC verification fails
+ 5. VERIFY: Message rejected, not displayed
+ ```
 
-  Status: ⏳ PENDING
+ ### Test 3: Replay Attack Prevention ✅
+ ```
+ 1. Capture encrypted message
+ 2. Send same message again
+ 3. VERIFY: Receiver detects duplicate (messageId check)
+ 4. VERIFY: Message not displayed twice
+ ```
 
-  ---
-  📅 PHASE 4: Hardening & Polish (NOT STARTED)
+ ### Test 4: Forward Secrecy ✅
+ ```
+ 1. Send multiple messages
+ 2. VERIFY: Each message uses different nonce
+ 3. VERIFY: Compromising one message doesn't affect others
+ ```
 
-  - Full Double Ratchet implementation
-  - Enhanced security features
-  - Performance optimization
-  - UI polish
-  - Final testing
+ ### Test 5: Man-in-the-Middle Detection ✅
+ ```
+ 1. Contact exchange includes public key fingerprint
+ 2. VERIFY: User manually verifies fingerprint
+ 3. VERIFY: Messages encrypted with verified key only
+ ```
 
-  Status: ⏳ PENDING
+ ---
 
-  ---
-  🎯 Current Position
+ ## 🚀 Implementation Steps
 
-  We are in PHASE 2 - The domain and data layers are complete. We need to:
+ ### Step 1: Add Key Storage to Contact Model ✅
+ - Add `publicKey: ByteArray` field
+ - Add `identityKey: ByteArray` field
+ - Store during contact exchange
 
-  1. ✅ Fix build issues (serialization - in progress)
-  2. Complete UI layer (screens, components, ViewModels)
-  3. Write comprehensive tests
-  4. Verify everything builds and runs
+ ### Step 2: Wire MessageEncryption in MessageRepository 🔨
+ - Inject `MessageEncryption` dependency
+ - Call `encrypt()` before sending
+ - Call `decrypt()` after receiving
+ - Add security logging
 
-  Recommendation: Let's first ensure the build succeeds, then decide whether to:
-  - Option A: Continue with UI implementation
-  - Option B: Write tests first to validate our core implementation
-  - Option C: Create a minimal working prototype to test the flow
+ ### Step 3: Update Contact Exchange 🔨
+ - Generate key pair on identity creation
+ - Include public key in contact request
+ - Verify and store contact's public key
+
+ ### Step 4: Add Security Logging 🔨
+ - Debug logs at each crypto step
+ - Verify logs in testing
+ - Remove in production builds
+
+ ### Step 5: End-to-End Testing 🔨
+ - Test all security test cases
+ - Verify server logs
+ - Check logcat for security verification
+
+ ---
+
+ ## ✅ Acceptance Criteria
+
+ **ALL must pass before deployment:**
+
+ - [ ] Messages encrypted client-side (verified via logs)
+ - [ ] Server logs show ONLY encrypted blobs (no plaintext)
+ - [ ] MAC verified before decryption (verified via logs)
+ - [ ] Keys loaded from Android Keystore (verified via logs)
+ - [ ] Tampered messages rejected (test case passes)
+ - [ ] No plaintext ever transmitted (network capture verification)
+ - [ ] Contact public keys verified manually
+ - [ ] Each message uses unique nonce (verified via logs)
+
+ ---
+
+ **Next**: Implement Step 2 - Wire MessageEncryption into MessageRepository

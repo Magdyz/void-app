@@ -1,5 +1,6 @@
 package com.void.block.messaging.ui
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.void.block.messaging.data.MessageRepository
@@ -9,6 +10,7 @@ import com.void.block.messaging.domain.MessageDirection
 import com.void.block.messaging.domain.MessageDraft
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.util.UUID
 
 /**
@@ -20,6 +22,10 @@ class ChatViewModel(
     private val contactId: String,
     private val messageRepository: MessageRepository
 ) : ViewModel() {
+
+    companion object {
+        private const val TAG = "VOID_SECURITY"
+    }
 
     private val _state = MutableStateFlow<ChatState>(ChatState.Loading)
     val state: StateFlow<ChatState> = _state.asStateFlow()
@@ -33,6 +39,26 @@ class ChatViewModel(
     init {
         loadMessages()
         loadDraft()
+        startMessagePolling()
+    }
+
+    /**
+     * Start polling for new messages every 3 seconds.
+     */
+    private fun startMessagePolling() {
+        viewModelScope.launch {
+            Log.d(TAG, "🔄 [POLLING_START] Message polling started")
+            while (true) {
+                try {
+                    // Sync messages from network
+                    val count = messageRepository.syncMessages()
+                    Log.d(TAG, "🔄 [POLLING] Synced $count new messages")
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ [POLLING_ERROR] ${e.message}", e)
+                }
+                delay(3000) // Poll every 3 seconds
+            }
+        }
     }
 
     /**

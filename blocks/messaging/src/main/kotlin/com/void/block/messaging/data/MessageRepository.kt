@@ -1,9 +1,16 @@
 package com.void.block.messaging.data
 
+import android.util.Log
+import com.void.block.messaging.crypto.MessageEncryptionService
 import com.void.block.messaging.domain.Conversation
 import com.void.block.messaging.domain.Message
+import com.void.block.messaging.domain.MessageContent
+import com.void.block.messaging.domain.MessageDirection
 import com.void.block.messaging.domain.MessageDraft
 import com.void.block.messaging.domain.MessageStatus
+import com.void.slate.network.NetworkClient
+import com.void.slate.network.models.MessageSendRequest
+import com.void.slate.network.models.ReceivedMessage
 import com.void.slate.storage.SecureStorage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,10 +20,12 @@ import kotlinx.serialization.json.Json
 
 /**
  * Repository for managing messages and conversations.
- * Stores all messages in encrypted storage.
+ * Stores all messages in encrypted storage and syncs with network.
  */
 class MessageRepository(
-    private val storage: SecureStorage
+    private val storage: SecureStorage,
+    private val networkClient: NetworkClient? = null,  // Optional for now, null = offline mode
+    private val encryptionService: MessageEncryptionService? = null  // Optional - null = no encryption
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -29,6 +38,7 @@ class MessageRepository(
     private val _messagesCache = mutableMapOf<String, MutableStateFlow<List<Message>>>()
 
     companion object {
+        private const val TAG = "VOID_SECURITY"
         private const val KEY_PREFIX_MESSAGE = "message."
         private const val KEY_PREFIX_CONVERSATION = "conversation."
         private const val KEY_PREFIX_DRAFT = "draft."
@@ -75,8 +85,23 @@ class MessageRepository(
 
     /**
      * Send a message (add to conversation).
+     *
+     * Stores locally first, then transmits via network if available.
      */
     suspend fun sendMessage(message: Message) {
+        // 1. Store message locally first (with SENDING status)
+        storeMessageLocally(message)
+
+        // 2. Send via network if available
+        networkClient?.let { client ->
+            sendMessageViaNetwork(message, client)
+        }
+    }
+
+    /**
+     * Store message in local storage.
+     */
+    private suspend fun storeMessageLocally(message: Message) {
         // Store message
         val messageKey = "$KEY_PREFIX_MESSAGE${message.id}"
         val messageJson = json.encodeToString(message)
@@ -113,6 +138,54 @@ class MessageRepository(
             MutableStateFlow(emptyList())
         }
         flow.value = flow.value + message
+    }
+
+    /**
+     * Send message via network.
+     * Encrypts message content before transmission.
+     */
+    private suspend fun sendMessageViaNetwork(message: Message, client: NetworkClient) {
+        // Get recipient identity
+        val recipientIdentity = encryptionService?.getRecipientIdentity(message.recipientId)
+        if (recipientIdentity == null) {
+            Log.e(TAG, "❌ [SEND_FAILED] Recipient identity not found: ${message.recipientId}")
+            updateMessageStatus(message.id, MessageStatus.FAILED)
+            return
+        }
+
+        // Encrypt message content
+        val encryptedPayload = if (encryptionService != null) {
+            val encrypted = encryptionService.encryptMessage(message.content, message.recipientId)
+            if (encrypted == null) {
+                updateMessageStatus(message.id, MessageStatus.FAILED)
+                return
+            }
+            encrypted
+        } else {
+            // Fallback: no encryption (for testing only)
+            Log.w(TAG, "⚠️  [NO_ENCRYPTION] Sending unencrypted message (testing mode)")
+            message.encryptedPayload ?: json.encodeToString(message).toByteArray()
+        }
+
+        val request = MessageSendRequest(
+            messageId = message.id,
+            recipientIdentity = recipientIdentity,
+            encryptedPayload = encryptedPayload,
+            timestamp = message.timestamp
+        )
+
+        client.sendMessage(request)
+            .onSuccess {
+                // Update message status to SENT
+                updateMessageStatus(message.id, MessageStatus.SENT)
+                Log.d(TAG, "✓ [MESSAGE_SENT] messageId=${message.id}")
+            }
+            .onFailure { error ->
+                // Update message status to FAILED
+                updateMessageStatus(message.id, MessageStatus.FAILED)
+                Log.e(TAG, "❌ [MESSAGE_FAILED] ${error.message}", error)
+                // TODO: Emit error event via EventBus
+            }
     }
 
     /**
@@ -393,6 +466,107 @@ class MessageRepository(
         val key = "$KEY_MESSAGE_IDS_PREFIX$conversationId"
         val idsJson = json.encodeToString(ids)
         storage.put(key, idsJson.toByteArray())
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Network Sync
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Sync messages from the network.
+     *
+     * Polls for new messages and stores them locally.
+     * Returns the number of new messages received.
+     */
+    suspend fun syncMessages(since: Long? = null): Int {
+        val client = networkClient ?: return 0
+
+        var newMessageCount = 0
+
+        client.receiveMessages(since)
+            .onSuccess { receivedMessages ->
+                Log.d(TAG, "📥 [SYNC] Received ${receivedMessages.size} messages from server")
+                receivedMessages.forEach { networkMessage ->
+                    val message = parseReceivedMessage(networkMessage)
+                    if (message != null) {
+                        receiveMessage(message)
+                        newMessageCount++
+                    } else {
+                        Log.w(TAG, "⚠️ [SYNC] Failed to parse message ${networkMessage.messageId}")
+                    }
+                }
+            }
+            .onFailure { error ->
+                Log.e(TAG, "❌ [SYNC_FAILED] ${error.message}", error)
+            }
+
+        return newMessageCount
+    }
+
+    /**
+     * Parse a received network message into a Message domain object.
+     * Decrypts the message content.
+     */
+    private suspend fun parseReceivedMessage(networkMessage: ReceivedMessage): Message? {
+        return try {
+            // Decrypt the message
+            // For Phase 2, we'll use a placeholder sender ID
+            // In Phase 3, sender identity will be included in the message metadata
+            val senderId = "unknown" // TODO: Extract from message metadata
+
+            val plaintext = if (encryptionService != null) {
+                val decrypted = encryptionService.decryptMessage(networkMessage.encryptedPayload, senderId)
+                if (decrypted == null) {
+                    Log.e(TAG, "❌ [DECRYPT_FAILED] Failed to decrypt message")
+                    return null
+                }
+                decrypted
+            } else {
+                // Fallback: no encryption (for testing only)
+                Log.w(TAG, "⚠️  [NO_ENCRYPTION] Receiving unencrypted message (testing mode)")
+                networkMessage.encryptedPayload.decodeToString()
+            }
+
+            // Create message
+            val message = Message(
+                id = networkMessage.messageId,
+                conversationId = senderId,
+                senderId = senderId,
+                recipientId = "me",
+                content = MessageContent.Text(plaintext),
+                direction = MessageDirection.INCOMING,
+                timestamp = networkMessage.serverTimestamp,
+                status = MessageStatus.DELIVERED,
+                deliveredAt = networkMessage.serverTimestamp,
+                encryptedPayload = networkMessage.encryptedPayload
+            )
+
+            Log.d(TAG, "✓ [MESSAGE_RECEIVED] messageId=${message.id}, content=\"$plaintext\"")
+            message
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ [PARSE_FAILED] ${e.message}", e)
+            null
+        }
+    }
+
+    /**
+     * Get the last sync timestamp.
+     * Used to poll only for messages since last sync.
+     */
+    suspend fun getLastSyncTimestamp(): Long? {
+        val bytes = storage.get("network.last_sync_timestamp") ?: return null
+        return try {
+            bytes.decodeToString().toLongOrNull()
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Update the last sync timestamp.
+     */
+    suspend fun updateLastSyncTimestamp(timestamp: Long = System.currentTimeMillis()) {
+        storage.put("network.last_sync_timestamp", timestamp.toString().toByteArray())
     }
 
     /**

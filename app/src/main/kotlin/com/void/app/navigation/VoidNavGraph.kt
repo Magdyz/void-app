@@ -213,22 +213,62 @@ fun VoidNavGraph(
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // Main App Routes (Placeholder)
+        // Messaging Block Routes
         // ═══════════════════════════════════════════════════════════════
 
         composable(Routes.MESSAGES_LIST) {
-            // TODO: Implement messages list screen
-            // For now, show placeholder
-            androidx.compose.foundation.layout.Box(
-                modifier = androidx.compose.ui.Modifier.fillMaxSize(),
-                contentAlignment = androidx.compose.ui.Alignment.Center
-            ) {
-                androidx.compose.material3.Text(
-                    text = "🎉 Welcome to VOID!\n\nMessages List\n(Coming Soon)",
-                    style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
-            }
+            com.void.block.messaging.ui.ConversationListScreen(
+                onConversationClick = { conversationId ->
+                    // Use conversationId as contactId for 1:1 chats
+                    navController.navigate("messages/chat/$conversationId")
+                },
+                onNewConversation = {
+                    navController.navigate(Routes.CONTACTS_LIST)
+                }
+            )
+        }
+
+        composable("messages/chat/{contactId}") { backStackEntry ->
+            val contactId = backStackEntry.arguments?.getString("contactId") ?: return@composable
+            // Use contactId as conversationId for 1:1 chats
+            val conversationId = contactId
+            val contactName = contactId // TODO: Resolve contact name from contacts repository
+
+            com.void.block.messaging.ui.ChatScreen(
+                conversationId = conversationId,
+                contactId = contactId,
+                contactName = contactName,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // Contacts Block Routes
+        // ═══════════════════════════════════════════════════════════════
+
+        composable(Routes.CONTACTS_LIST) {
+            com.void.block.contacts.ui.screens.ContactsListScreen(
+                onNavigateToAddContact = { navController.navigate(Routes.CONTACTS_ADD) },
+                onNavigateToScanQR = { navController.navigate(Routes.CONTACTS_SCAN) },
+                onNavigateToContactDetail = { contactId ->
+                    // Navigate to chat with selected contact
+                    navController.navigate("messages/chat/$contactId")
+                }
+            )
+        }
+
+        composable(Routes.CONTACTS_ADD) {
+            com.void.block.contacts.ui.screens.AddContactScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToScanQR = { navController.navigate(Routes.CONTACTS_SCAN) },
+                onContactAdded = { contactId ->
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable(Routes.CONTACTS_SCAN) {
+            androidx.compose.material3.Text("QR Scanner - Coming Soon")
         }
     }
 }

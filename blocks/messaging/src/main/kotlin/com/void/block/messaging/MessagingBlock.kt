@@ -76,14 +76,25 @@ class MessagingBlock : BlockManifest {
     override fun Module.install() {
         // Crypto layer
         single { MessageEncryption(get()) }
+        // MessageEncryptionService is provided by app module
 
         // Data layer
-        single { MessageRepository(get()) }
+        single {
+            MessageRepository(
+                storage = get(),
+                networkClient = get(),
+                encryptionService = get()
+            )
+        }
 
         // ViewModels
         viewModel { ConversationListViewModel(get()) }
-        viewModel { (conversationId: String, contactId: String) ->
-            ChatViewModel(conversationId, contactId, get())
+        viewModel { params ->
+            ChatViewModel(
+                conversationId = params[0],
+                contactId = params[1],
+                messageRepository = get()
+            )
         }
     }
 
@@ -92,21 +103,23 @@ class MessagingBlock : BlockManifest {
         composable(Routes.MESSAGES_LIST) {
             ConversationListScreen(
                 onConversationClick = { conversationId ->
-                    navigator.navigate("${Routes.MESSAGES_CHAT}/$conversationId")
+                    // When clicking existing conversation, we need to get contactId from conversation
+                    // For now, use conversationId as contactId (they should match for 1:1 chats)
+                    navigator.navigate("messages/chat/$conversationId")
                 },
                 onNewConversation = {
-                    // TODO: Navigate to contacts to select recipient
+                    // Navigate to contacts to select recipient
                     navigator.navigate(Routes.CONTACTS_LIST)
                 }
             )
         }
 
-        composable("${Routes.MESSAGES_CHAT}/{conversationId}") { backStackEntry ->
-            val conversationId = backStackEntry.arguments?.getString("conversationId") ?: return@composable
-            // TODO: Get contactId and contactName from conversation or contacts block
-            // For now, using placeholder values
-            val contactId = "placeholder_contact"
-            val contactName = "Contact"
+        composable("messages/chat/{contactId}") { backStackEntry ->
+            val contactId = backStackEntry.arguments?.getString("contactId") ?: return@composable
+            // Use contactId as conversationId for now (1:1 chat)
+            val conversationId = contactId
+            // TODO: Get contactName from contacts block via EventBus
+            val contactName = contactId // Use contactId as display name for now
 
             ChatScreen(
                 conversationId = conversationId,
@@ -123,6 +136,26 @@ class MessagingBlock : BlockManifest {
  * Can be used for manual registration if not using auto-discovery.
  */
 val messagingModule = module {
+    // Crypto layer
     single { MessageEncryption(get()) }
-    single { MessageRepository(get()) }
+    // MessageEncryptionService is provided by app module
+
+    // Data layer
+    single {
+        MessageRepository(
+            storage = get(),
+            networkClient = get(),
+            encryptionService = get()
+        )
+    }
+
+    // ViewModels
+    viewModel { ConversationListViewModel(get()) }
+    viewModel { params ->
+        ChatViewModel(
+            conversationId = params[0],
+            contactId = params[1],
+            messageRepository = get()
+        )
+    }
 }

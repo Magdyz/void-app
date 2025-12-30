@@ -1,5 +1,7 @@
 package com.void.app
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -13,12 +15,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import com.void.app.navigation.VoidNavGraph
 import com.void.block.identity.domain.GenerateIdentity
 import com.void.block.rhythm.RhythmVerification
 import com.void.slate.crypto.CryptoProvider
 import com.void.slate.design.theme.VoidTheme
+import com.void.slate.navigation.Routes
 import com.void.slate.storage.SecureStorage
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
@@ -46,6 +50,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     // Determine start destination based on app state
                     var startDestination by remember { mutableStateOf<String?>(null) }
+                    var navController: NavHostController? by remember { mutableStateOf(null) }
 
                     LaunchedEffect(Unit) {
                         // TODO: Re-enable verification tests in a separate test app or first-launch only
@@ -75,14 +80,108 @@ class MainActivity : ComponentActivity() {
                             CircularProgressIndicator()
                         }
                     } else {
-                        val navController = rememberNavController()
+                        navController = rememberNavController()
                         VoidNavGraph(
-                            navController = navController,
+                            navController = navController!!,
                             startDestination = startDestination!!
                         )
+
+                        // Handle deep links after navigation is set up
+                        LaunchedEffect(navController) {
+                            intent?.data?.let { uri ->
+                                handleVoidDeepLink(navController!!, uri)
+                            }
+                        }
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Handle new intent when activity is already running (singleTop launch mode).
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+
+        // Handle deep link from new intent
+        intent.data?.let { uri ->
+            // We'll need to pass the navController somehow
+            // For now, log it - proper implementation would use a shared ViewModel
+            Log.d("VOID_DEEPLINK", "New intent received with deep link: $uri")
+            // TODO: Implement proper deep link handling for onNewIntent
+        }
+    }
+
+    /**
+     * Handle void:// and https://void.chat deep links.
+     * Supports:
+     * - void://ghost.paper.forty (custom scheme)
+     * - https://void.chat/c/ghost.paper.forty (app link)
+     */
+    private fun handleVoidDeepLink(navController: NavHostController, uri: Uri) {
+        Log.d("VOID_DEEPLINK", "═══════════════════════════════════════")
+        Log.d("VOID_DEEPLINK", "🔗 Deep Link Received")
+        Log.d("VOID_DEEPLINK", "═══════════════════════════════════════")
+        Log.d("VOID_DEEPLINK", "URI: $uri")
+        Log.d("VOID_DEEPLINK", "Scheme: ${uri.scheme}")
+        Log.d("VOID_DEEPLINK", "Host: ${uri.host}")
+        Log.d("VOID_DEEPLINK", "Path: ${uri.path}")
+
+        try {
+            // Extract the 3-word identity
+            val rawIdentity = when (uri.scheme) {
+                "void" -> {
+                    // void://ghost.paper.forty
+                    uri.host
+                }
+                "https" -> {
+                    // https://void.chat/c/ghost.paper.forty
+                    uri.lastPathSegment
+                }
+                else -> {
+                    Log.e("VOID_DEEPLINK", "❌ Unsupported scheme: ${uri.scheme}")
+                    return
+                }
+            }
+
+            Log.d("VOID_DEEPLINK", "Extracted identity: $rawIdentity")
+
+            if (isValidIdentity(rawIdentity)) {
+                Log.d("VOID_DEEPLINK", "✅ Valid identity, navigating to add contact screen")
+
+                // Navigate to "Add Contact" screen with pre-filled ID
+                navController.navigate("${Routes.CONTACTS_ADD}?id=$rawIdentity")
+
+                Log.d("VOID_DEEPLINK", "═══════════════════════════════════════")
+            } else {
+                Log.e("VOID_DEEPLINK", "❌ Invalid identity format: $rawIdentity")
+                Log.d("VOID_DEEPLINK", "═══════════════════════════════════════")
+            }
+
+        } catch (e: Exception) {
+            Log.e("VOID_DEEPLINK", "❌ Error handling deep link: ${e.message}", e)
+            Log.d("VOID_DEEPLINK", "═══════════════════════════════════════")
+        }
+    }
+
+    /**
+     * Validate that a string matches the 3-word identity format.
+     * Format: word.word.word (e.g., ghost.paper.forty)
+     */
+    private fun isValidIdentity(identity: String?): Boolean {
+        if (identity == null) return false
+
+        // Split by dots
+        val parts = identity.split(".")
+
+        // Must have exactly 3 parts
+        if (parts.size != 3) return false
+
+        // Each part must be alphabetic and non-empty
+        return parts.all { part ->
+            part.isNotEmpty() && part.all { it.isLetter() }
         }
     }
 

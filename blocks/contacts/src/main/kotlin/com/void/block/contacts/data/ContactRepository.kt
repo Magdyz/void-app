@@ -1,22 +1,28 @@
 package com.void.block.contacts.data
 
+import android.util.Log
 import com.void.block.contacts.domain.Contact
 import com.void.block.contacts.domain.ContactRequest
 import com.void.block.contacts.domain.ThreeWordIdentity
+import com.void.slate.network.NetworkClient
+import com.void.slate.network.models.ContactExchangeRequest
 import com.void.slate.storage.SecureStorage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.util.Base64
 import java.util.UUID
 
 /**
  * Repository for managing contacts.
- * Stores contacts in encrypted storage.
+ * Stores contacts in encrypted storage and syncs with network.
  */
 class ContactRepository(
-    private val storage: SecureStorage
+    private val storage: SecureStorage,
+    private val networkClient: NetworkClient? = null  // Optional for now, null = offline mode
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -29,7 +35,18 @@ class ContactRepository(
     private val _contactRequests = MutableStateFlow<List<ContactRequest>>(emptyList())
     val contactRequests: StateFlow<List<ContactRequest>> = _contactRequests.asStateFlow()
 
+    /**
+     * Public key bundle for contact exchange.
+     * Contains both encryption and identity public keys.
+     */
+    @Serializable
+    private data class PublicKeyBundle(
+        val encryptionKey: String,  // Base64 encoded X25519 public key
+        val identityKey: String      // Base64 encoded Ed25519 public key
+    )
+
     companion object {
+        private const val TAG = "VOID_SECURITY"
         private const val KEY_PREFIX_CONTACT = "contact."
         private const val KEY_PREFIX_REQUEST = "contact_request."
         private const val KEY_CONTACT_IDS = "contact.all_ids"
@@ -301,6 +318,135 @@ class ContactRepository(
     private suspend fun saveRequestIds(ids: Set<String>) {
         val idsJson = json.encodeToString(ids)
         storage.put(KEY_REQUEST_IDS, idsJson.toByteArray())
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Network Sync
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Create a public key bundle from separate encryption and identity keys.
+     */
+    fun createPublicKeyBundle(
+        encryptionKey: ByteArray,
+        identityKey: ByteArray
+    ): ByteArray {
+        val bundle = PublicKeyBundle(
+            encryptionKey = Base64.getEncoder().encodeToString(encryptionKey),
+            identityKey = Base64.getEncoder().encodeToString(identityKey)
+        )
+        return json.encodeToString(bundle).toByteArray()
+    }
+
+    /**
+     * Parse a public key bundle into separate keys.
+     */
+    private fun parsePublicKeyBundle(bundleBytes: ByteArray): Pair<ByteArray, ByteArray>? {
+        return try {
+            val bundle = json.decodeFromString<PublicKeyBundle>(bundleBytes.decodeToString())
+            val encryptionKey = Base64.getDecoder().decode(bundle.encryptionKey)
+            val identityKey = Base64.getDecoder().decode(bundle.identityKey)
+            Pair(encryptionKey, identityKey)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse public key bundle: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Send a contact request over the network.
+     *
+     * @param toIdentity The recipient's three-word identity
+     * @param myIdentity My three-word identity
+     * @param publicKeyBundle My public keys bundle
+     * @return Result with success/failure
+     */
+    suspend fun sendContactRequestViaNetwork(
+        toIdentity: ThreeWordIdentity,
+        myIdentity: ThreeWordIdentity,
+        publicKeyBundle: ByteArray
+    ): Result<Unit> {
+        val client = networkClient ?: return Result.failure(
+            Exception("Network client not available")
+        )
+
+        Log.d(TAG, "🔑 [CONTACT_REQUEST] Sending to ${toIdentity}, bundle size: ${publicKeyBundle.size} bytes")
+
+        val request = ContactExchangeRequest(
+            requestId = UUID.randomUUID().toString(),
+            fromIdentity = myIdentity.toString(),
+            toIdentity = toIdentity.toString(),
+            publicKeyBundle = publicKeyBundle,
+            timestamp = System.currentTimeMillis()
+        )
+
+        return client.sendContactRequest(request)
+            .map { response ->
+                if (response.success) {
+                    Log.d(TAG, "✓ [CONTACT_REQUEST] Sent successfully")
+                    Unit
+                } else {
+                    throw Exception(response.error ?: "Request failed")
+                }
+            }
+    }
+
+    /**
+     * Poll for incoming contact requests from the network.
+     *
+     * @return Number of new contact requests received
+     */
+    suspend fun pollContactRequests(): Int {
+        val client = networkClient ?: return 0
+
+        var newRequestCount = 0
+
+        client.pollContactRequests()
+            .onSuccess { networkRequests ->
+                networkRequests.forEach { networkRequest ->
+                    val contactRequest = parseNetworkContactRequest(networkRequest)
+                    if (contactRequest != null) {
+                        // Check if we don't already have this request
+                        if (getContactRequest(networkRequest.requestId) == null) {
+                            addContactRequest(contactRequest)
+                            newRequestCount++
+                        }
+                    }
+                }
+            }
+            .onFailure { error ->
+                // TODO: Emit error event via EventBus
+                // For now, silently fail
+            }
+
+        return newRequestCount
+    }
+
+    /**
+     * Parse a network contact request into a ContactRequest domain object.
+     */
+    private fun parseNetworkContactRequest(networkRequest: ContactExchangeRequest): ContactRequest? {
+        return try {
+            val fromIdentity = ThreeWordIdentity.parse(networkRequest.fromIdentity) ?: return null
+
+            // Parse the public key bundle
+            val (encryptionKey, identityKey) = parsePublicKeyBundle(networkRequest.publicKeyBundle)
+                ?: return null
+
+            Log.d(TAG, "🔑 [CONTACT_REQUEST_PARSE] Received keys: encryptionKey=${encryptionKey.size} bytes, identityKey=${identityKey.size} bytes")
+
+            ContactRequest(
+                id = networkRequest.requestId,
+                fromIdentity = fromIdentity,
+                publicKey = encryptionKey,
+                identityKey = identityKey,
+                timestamp = networkRequest.timestamp,
+                status = ContactRequest.RequestStatus.PENDING
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ [CONTACT_REQUEST_PARSE] Failed: ${e.message}")
+            null
+        }
     }
 
     /**

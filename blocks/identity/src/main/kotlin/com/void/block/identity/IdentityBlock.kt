@@ -58,12 +58,18 @@ class IdentityBlock : BlockManifest {
     
     override fun Module.install() {
         // Data layer
-        single { IdentityRepository(get(), get()) }
-        
+        single {
+            IdentityRepository(
+                secureStorage = get(),
+                crypto = get(),
+                keystoreManager = get()
+            )
+        }
+
         // Domain layer
         single { WordDictionary() }
         single { GenerateIdentity(get(), get(), get()) }
-        
+
         // UI layer
         viewModel { IdentityViewModel(get(), get()) }
     }
@@ -91,7 +97,13 @@ class IdentityBlock : BlockManifest {
  * Can be used for manual registration if not using auto-discovery.
  */
 val identityModule = module {
-    single { IdentityRepository(get(), get()) }
+    single {
+        IdentityRepository(
+            secureStorage = get(),
+            crypto = get(),
+            keystoreManager = get()
+        )
+    }
     single { WordDictionary() }
     single { GenerateIdentity(get(), get(), get()) }
     viewModel { IdentityViewModel(get(), get()) }

@@ -11,7 +11,16 @@ dependencies {
     // slate modules
     implementation(project(":slate:storage"))
     implementation(project(":slate:crypto"))
+    implementation(project(":slate:network"))
 
-    // Contacts block for contact information (via EventBus only, no direct import)
-    // We'll use EventBus to request contact info
+    // WorkManager for background sync
+    implementation(libs.workmanager.runtime)
+
+    // Koin for dependency injection
+    implementation(libs.koin.core)
+    implementation(libs.koin.android)
+
+    // Blocks are isolated - no direct dependencies on other blocks
+    // Cross-block communication via EventBus only
+    // Dependencies injected at runtime via Koin in app module
 }

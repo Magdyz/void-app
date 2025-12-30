@@ -3,10 +3,13 @@ package com.void.app.di
 import android.content.Context
 import com.void.app.AppStateManager
 import com.void.app.RuntimeFeatureFlags
-// import com.void.block.contacts.contactsModule
+import com.void.app.crypto.AppMessageEncryptionService
+import com.void.block.messaging.crypto.MessageEncryptionService
+import com.void.block.messaging.sync.MessageSyncEngine
+import com.void.block.contacts.contactsModule
 // import com.void.block.decoy.decoyModule
 import com.void.block.identity.identityModule
-// import com.void.block.messaging.messagingModule
+import com.void.block.messaging.messagingModule
 // import com.void.block.onboarding.onboardingModule
 import com.void.block.rhythm.rhythmModule
 import com.void.slate.block.BlockRegistry
@@ -19,8 +22,12 @@ import com.void.slate.event.LoggingEventBus
 import com.void.slate.navigation.Navigator
 import com.void.slate.navigation.VoidNavigator
 import com.void.slate.crypto.keystore.KeystoreManager
+import com.void.slate.network.di.networkModule
 import com.void.slate.storage.SecureStorage
 import com.void.slate.storage.impl.SqlCipherStorage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import org.koin.dsl.module
 
 /**
@@ -58,8 +65,45 @@ val appModule = module {
     // Keystore Manager - hardware-backed key storage
     single { KeystoreManager(get<Context>()) }
 
+    // Message Encryption Service - bridges blocks for secure messaging
+    // This lives in app module because it needs access to both identity and contacts
+    single<MessageEncryptionService> {
+        AppMessageEncryptionService(
+            messageEncryption = get(),
+            identityRepository = get(),
+            contactRepository = get()
+        )
+    }
+
+    // Crypto Debug Helper - for diagnosing encryption issues
+    // TODO: Remove in production builds
+    single {
+        com.void.app.debug.CryptoDebugHelper(
+            identityRepository = get(),
+            contactRepository = get()
+        )
+    }
+
     // App State Manager - determines navigation flow
     single { AppStateManager(rhythmSecurityManager = get()) }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Message Sync Infrastructure (for push notifications and background sync)
+    // ═══════════════════════════════════════════════════════════════════
+
+    // Application-level CoroutineScope for MessageSyncEngine
+    single<CoroutineScope> { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
+
+    // MessageSyncEngine - handles WebSocket sync and notifications
+    single {
+        MessageSyncEngine(
+            context = get(),
+            networkClient = get(),
+            messageRepository = get(),
+            encryptionService = get(),
+            scope = get()
+        )
+    }
 
     // ═══════════════════════════════════════════════════════════════════
     // Block Modules (each block registers its own dependencies)
@@ -67,12 +111,12 @@ val appModule = module {
 
     // Include all block modules
     // These are loaded dynamically based on which blocks are included in build
-    // TODO: Uncomment as blocks are implemented
     includes(
+        networkModule,    // Network infrastructure (slate module)
         identityModule,
         rhythmModule,
-        // messagingModule,
-        // contactsModule,
+        messagingModule,  // Phase 2: Messaging
+        contactsModule,   // Phase 2: Contacts
         // decoyModule,
         // onboardingModule,
     )

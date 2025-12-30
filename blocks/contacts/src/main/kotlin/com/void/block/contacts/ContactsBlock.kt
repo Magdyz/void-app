@@ -2,6 +2,7 @@ package com.void.block.contacts
 
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavGraphBuilder
+import androidx.navigation.compose.composable
 import com.void.block.contacts.data.ContactRepository
 import com.void.block.contacts.events.ContactEvent
 import com.void.slate.block.Block
@@ -56,18 +57,45 @@ class ContactsBlock : BlockManifest {
 
     override fun Module.install() {
         // Data layer
-        single { ContactRepository(get()) }
+        single { ContactRepository(get(), get()) }  // Added NetworkClient dependency
 
-        // ViewModels will be added when UI is implemented
+        // ViewModels
+        factory { com.void.block.contacts.ui.viewmodels.ContactsViewModel(get(), get()) }
+        factory { com.void.block.contacts.ui.viewmodels.AddContactViewModel(get(), get()) }
     }
 
     @Composable
     override fun NavGraphBuilder.routes(navigator: Navigator) {
-        // TODO: Implement UI screens
-        // - ContactListScreen
-        // - AddContactScreen
-        // - ScanQRScreen
-        // - ContactDetailScreen
+        // Contacts list screen
+        composable(Routes.CONTACTS_LIST) {
+            com.void.block.contacts.ui.screens.ContactsListScreen(
+                onNavigateToAddContact = { navigator.navigate(Routes.CONTACTS_ADD) },
+                onNavigateToScanQR = { navigator.navigate(Routes.CONTACTS_SCAN) },
+                onNavigateToContactDetail = { contactId ->
+                    // Navigate to chat with this contact
+                    navigator.navigate("messages/chat/$contactId")
+                }
+            )
+        }
+
+        // Add contact screen
+        composable(Routes.CONTACTS_ADD) {
+            com.void.block.contacts.ui.screens.AddContactScreen(
+                onNavigateBack = { navigator.goBack() },
+                onNavigateToScanQR = { navigator.navigate(Routes.CONTACTS_SCAN) },
+                onContactAdded = { contactId ->
+                    // Go back to contacts list after adding
+                    navigator.goBack()
+                }
+            )
+        }
+
+        // Scan QR screen - placeholder for now
+        composable(Routes.CONTACTS_SCAN) {
+            // TODO: Implement ScanQRScreen in Phase 2 continuation
+            // For now, show simple placeholder
+            androidx.compose.material3.Text("QR Scanner - Coming Soon")
+        }
     }
 }
 
@@ -76,5 +104,7 @@ class ContactsBlock : BlockManifest {
  * Can be used for manual registration if not using auto-discovery.
  */
 val contactsModule = module {
-    single { ContactRepository(get()) }
+    single { ContactRepository(get(), get()) }
+    factory { com.void.block.contacts.ui.viewmodels.ContactsViewModel(get(), get()) }
+    factory { com.void.block.contacts.ui.viewmodels.AddContactViewModel(get(), get()) }
 }

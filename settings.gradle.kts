@@ -12,6 +12,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven { url = uri("https://jitpack.io") }  // Required for UnifiedPush
     }
 }
 
@@ -24,6 +25,7 @@ include(":slate:core")
 include(":slate:crypto")
 include(":slate:storage")
 include(":slate:design")
+include(":slate:network")
 
 // ═══════════════════════════════════════════════════════════════════
 // BLOCKS (Features) - The lego pieces
