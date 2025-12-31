@@ -1,0 +1,151 @@
+-- =========================================================================
+-- PHASE 4: PUSH NOTIFICATION WEBHOOK SETUP
+-- =========================================================================
+-- Database trigger to call the send-push-notification Edge Function
+-- whenever a new message is inserted into message_queue.
+-- =========================================================================
+
+-- IMPORTANT: Before running this SQL, you must:
+-- 1. Deploy the Edge Function: supabase functions deploy send-push-notification
+-- 2. Set the FIREBASE_SERVICE_ACCOUNT secret (Firebase service account JSON)
+-- 3. Note the Edge Function URL from deployment output
+
+-- =========================================================================
+-- OPTION 1: Using Supabase Database Webhooks (Recommended)
+-- =========================================================================
+-- This is configured via the Supabase Dashboard, not SQL.
+-- Navigate to: Database > Webhooks > Create a new hook
+--
+-- Configuration:
+-- - Name: "Push notification on message insert"
+-- - Table: message_queue
+-- - Events: INSERT
+-- - Type: HTTP Request
+-- - HTTP Method: POST
+-- - URL: https://[your-project-ref].supabase.co/functions/v1/send-push-notification
+-- - HTTP Headers:
+--   - Authorization: Bearer [YOUR_ANON_KEY]
+--   - Content-Type: application/json
+-- - Payload: Send the new record as JSON
+
+-- =========================================================================
+-- OPTION 2: Using PostgreSQL Triggers + HTTP Extension (Alternative)
+-- =========================================================================
+-- If you prefer SQL-based triggers, use the pg_net extension (Supabase only):
+
+-- Enable the pg_net extension for making HTTP requests from Postgres
+-- CREATE EXTENSION IF NOT EXISTS pg_net;
+
+-- Create a trigger function that calls the Edge Function
+-- CREATE OR REPLACE FUNCTION public.trigger_push_notification()
+-- RETURNS TRIGGER
+-- LANGUAGE plpgsql
+-- SECURITY DEFINER
+-- AS $$
+-- DECLARE
+--   project_url TEXT := 'https://[your-project-ref].supabase.co';
+--   anon_key TEXT := '[YOUR_ANON_KEY]';
+--   request_id BIGINT;
+-- BEGIN
+--   -- Call the Edge Function via pg_net
+--   SELECT net.http_post(
+--     url := project_url || '/functions/v1/send-push-notification',
+--     headers := jsonb_build_object(
+--       'Content-Type', 'application/json',
+--       'Authorization', 'Bearer ' || anon_key
+--     ),
+--     body := jsonb_build_object(
+--       'record', jsonb_build_object(
+--         'id', NEW.id,
+--         'mailbox_hash', NEW.mailbox_hash,
+--         'epoch', NEW.epoch,
+--         'created_at', NEW.created_at
+--       )
+--     )
+--   ) INTO request_id;
+--
+--   RETURN NEW;
+-- END;
+-- $$;
+
+-- Attach the trigger to message_queue INSERT events
+-- CREATE TRIGGER on_message_insert
+--   AFTER INSERT ON public.message_queue
+--   FOR EACH ROW
+--   EXECUTE FUNCTION public.trigger_push_notification();
+
+-- =========================================================================
+-- TESTING PHASE 4
+-- =========================================================================
+-- Follow these steps to test the push notification system:
+
+-- Setup:
+-- 1. Get a test FCM token from your Android/iOS app
+-- 2. Register it in the push_registrations table (see test below)
+-- 3. Insert a message to that mailbox
+-- 4. Check if the device receives the push notification
+
+-- Test 1: Register a test FCM token
+-- INSERT INTO public.push_registrations (mailbox_hash, fcm_token)
+-- VALUES (
+--     'testboxtestboxtestboxtestboxtestboxtestboxtestboxtestboxtestbox',
+--     'your-actual-fcm-token-from-device-here'
+-- )
+-- ON CONFLICT (mailbox_hash)
+-- DO UPDATE SET
+--     fcm_token = EXCLUDED.fcm_token,
+--     expires_at = now() + INTERVAL '25 hours',
+--     created_at = now();
+
+-- Test 2: Insert a message to trigger the push
+-- INSERT INTO public.message_queue (mailbox_hash, ciphertext, epoch)
+-- VALUES (
+--     'testboxtestboxtestboxtestboxtestboxtestboxtestboxtestboxtestbox',
+--     'dGVzdCBjaXBoZXJ0ZXh0',
+--     floor(extract(epoch from now()))::bigint
+-- );
+
+-- Test 3: Check Edge Function logs
+-- Go to Supabase Dashboard > Edge Functions > send-push-notification > Logs
+-- You should see: "Push sent successfully to testbox..."
+
+-- Test 4: Verify device received push
+-- On your test device, check if the app received a silent push with:
+-- - data.epoch: the current Unix timestamp
+-- - data.nonce: a random UUID
+
+-- Test 5: Test no-token scenario (should not error)
+-- INSERT INTO public.message_queue (mailbox_hash, ciphertext, epoch)
+-- VALUES (
+--     'unknownunknownunknownunknownunknownunknownunknownunknownunknown',
+--     'dGVzdA==',
+--     floor(extract(epoch from now()))::bigint
+-- );
+-- Check logs - should see: "No FCM token for mailbox unknown... - skipping push"
+
+-- =========================================================================
+-- DEPLOYMENT CHECKLIST
+-- =========================================================================
+-- [ ] 1. Deploy Edge Function:
+--        supabase functions deploy send-push-notification
+--
+-- [ ] 2. Set FIREBASE_SERVICE_ACCOUNT secret:
+--        supabase secrets set FIREBASE_SERVICE_ACCOUNT="$(cat supabase/firebase-service-account.json)"
+--
+-- [ ] 3. Configure Database Webhook in Supabase Dashboard (Option 1)
+--        OR create PostgreSQL trigger (Option 2)
+--
+-- [ ] 4. Test with real FCM token from your app
+--
+-- [ ] 5. Monitor Edge Function logs for errors
+
+-- =========================================================================
+-- NOTES
+-- =========================================================================
+-- 1. Edge Function must be deployed before creating the webhook
+-- 2. FIREBASE_SERVICE_ACCOUNT is your Firebase service account JSON (V1 API)
+-- 3. Get it from Firebase Console > Project Settings > Service Accounts
+-- 4. Push notifications are SILENT - no notification UI shown to user
+-- 5. Push contains only epoch + nonce, never message content
+-- 6. If no FCM token exists, function returns success (client will poll)
+-- 7. Firebase Cloud Messaging API V1 uses OAuth 2.0 (replaces legacy server key)

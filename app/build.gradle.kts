@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "app.voidapp.secure"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "app.voidapp.secure"

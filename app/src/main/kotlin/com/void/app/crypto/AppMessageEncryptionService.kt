@@ -126,9 +126,34 @@ class AppMessageEncryptionService(
         }
     }
 
-    override suspend fun getRecipientIdentity(recipientId: String): String? {
+    override suspend fun getRecipientIdentity(recipientId: String): com.void.block.messaging.crypto.RecipientIdentity? {
         val contact = contactRepository.getContact(recipientId) ?: return null
-        return contact.identity.toString()
+
+        // TODO: Contacts need to store the recipient's seed for mailbox derivation
+        // For now, we'll use a placeholder. In a real implementation:
+        // 1. During contact exchange, both parties share their identity seed
+        // 2. The seed is stored in the Contact model
+        // 3. We retrieve it here for mailbox derivation
+
+        // TEMPORARY WORKAROUND: Generate deterministic seed from identity words
+        // This is NOT secure for production - just for testing
+        val tempSeed = (contact.identity.word1 + contact.identity.word2 + contact.identity.word3)
+            .toByteArray()
+            .let { java.security.MessageDigest.getInstance("SHA-256").digest(it) }
+
+        return com.void.block.messaging.crypto.RecipientIdentity(
+            seed = tempSeed,
+            threeWordIdentity = contact.identity.toString()
+        )
+    }
+
+    override suspend fun getOwnIdentity(): com.void.block.messaging.crypto.RecipientIdentity? {
+        val identity = identityRepository.getIdentity() ?: return null
+
+        return com.void.block.messaging.crypto.RecipientIdentity(
+            seed = identity.seed,
+            threeWordIdentity = identity.formatted
+        )
     }
 
     private fun ByteArray.toHex(): String {

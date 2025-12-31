@@ -82,7 +82,9 @@ class MessagingBlock : BlockManifest {
         single {
             MessageRepository(
                 storage = get(),
-                networkClient = get(),
+                messageSender = get(),
+                messageFetcher = get(),
+                mailboxDerivation = get(),
                 encryptionService = get()
             )
         }
@@ -144,7 +146,9 @@ val messagingModule = module {
     single {
         MessageRepository(
             storage = get(),
-            networkClient = get(),
+            messageSender = get(),
+            messageFetcher = get(),
+            mailboxDerivation = get(),
             encryptionService = get()
         )
     }

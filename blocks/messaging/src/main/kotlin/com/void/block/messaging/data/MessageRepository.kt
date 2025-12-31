@@ -8,10 +8,12 @@ import com.void.block.messaging.domain.MessageContent
 import com.void.block.messaging.domain.MessageDirection
 import com.void.block.messaging.domain.MessageDraft
 import com.void.block.messaging.domain.MessageStatus
-import com.void.slate.network.NetworkClient
-import com.void.slate.network.models.MessageSendRequest
-import com.void.slate.network.models.ReceivedMessage
+import com.void.slate.network.supabase.MessageSender
+import com.void.slate.network.supabase.MessageFetcher
+import com.void.slate.network.supabase.MessageRecord
+import com.void.slate.network.mailbox.MailboxDerivation
 import com.void.slate.storage.SecureStorage
+import android.util.Base64
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,7 +26,9 @@ import kotlinx.serialization.json.Json
  */
 class MessageRepository(
     private val storage: SecureStorage,
-    private val networkClient: NetworkClient? = null,  // Optional for now, null = offline mode
+    private val messageSender: MessageSender? = null,  // Optional for now, null = offline mode
+    private val messageFetcher: MessageFetcher? = null,  // Optional for now, null = offline mode
+    private val mailboxDerivation: MailboxDerivation? = null,  // Optional for fetching
     private val encryptionService: MessageEncryptionService? = null  // Optional - null = no encryption
 ) {
     private val json = Json {
@@ -93,8 +97,8 @@ class MessageRepository(
         storeMessageLocally(message)
 
         // 2. Send via network if available
-        networkClient?.let { client ->
-            sendMessageViaNetwork(message, client)
+        messageSender?.let { sender ->
+            sendMessageViaNetwork(message, sender)
         }
     }
 
@@ -141,10 +145,10 @@ class MessageRepository(
     }
 
     /**
-     * Send message via network.
+     * Send message via network using Supabase.
      * Encrypts message content before transmission.
      */
-    private suspend fun sendMessageViaNetwork(message: Message, client: NetworkClient) {
+    private suspend fun sendMessageViaNetwork(message: Message, sender: MessageSender) {
         // Get recipient identity
         val recipientIdentity = encryptionService?.getRecipientIdentity(message.recipientId)
         if (recipientIdentity == null) {
@@ -167,18 +171,16 @@ class MessageRepository(
             message.encryptedPayload ?: json.encodeToString(message).toByteArray()
         }
 
-        val request = MessageSendRequest(
-            messageId = message.id,
-            recipientIdentity = recipientIdentity,
+        // Send message to Supabase using recipient's seed
+        sender.sendMessage(
+            recipientSeed = recipientIdentity.seed,
             encryptedPayload = encryptedPayload,
             timestamp = message.timestamp
         )
-
-        client.sendMessage(request)
-            .onSuccess {
+            .onSuccess { messageId ->
                 // Update message status to SENT
                 updateMessageStatus(message.id, MessageStatus.SENT)
-                Log.d(TAG, "✓ [MESSAGE_SENT] messageId=${message.id}")
+                Log.d(TAG, "✓ [MESSAGE_SENT] messageId=${message.id}, supabaseId=$messageId")
             }
             .onFailure { error ->
                 // Update message status to FAILED
@@ -473,28 +475,54 @@ class MessageRepository(
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * Sync messages from the network.
+     * Sync messages from the network using Supabase.
      *
-     * Polls for new messages and stores them locally.
+     * Fetches messages from the user's mailbox and stores them locally.
      * Returns the number of new messages received.
      */
     suspend fun syncMessages(since: Long? = null): Int {
-        val client = networkClient ?: return 0
+        val fetcher = messageFetcher ?: return 0
+        val mailbox = mailboxDerivation ?: return 0
+
+        // TODO: Get user's own identity seed
+        // For now, we need to add a method to get the current user's identity
+        val userIdentity = encryptionService?.getOwnIdentity()
+        if (userIdentity == null) {
+            Log.w(TAG, "⚠️ [SYNC] Cannot sync - user identity not available")
+            return 0
+        }
 
         var newMessageCount = 0
+        val timestamp = since ?: System.currentTimeMillis()
 
-        client.receiveMessages(since)
-            .onSuccess { receivedMessages ->
-                Log.d(TAG, "📥 [SYNC] Received ${receivedMessages.size} messages from server")
-                receivedMessages.forEach { networkMessage ->
-                    val message = parseReceivedMessage(networkMessage)
+        // Epoch for database queries is Unix timestamp in seconds (not mailbox rotation epoch)
+        val epoch = timestamp / 1000
+
+        // Derive mailbox hashes (current epoch and previous for clock skew)
+        val currentMailbox = mailbox.deriveMailbox(userIdentity.seed, timestamp)
+        val previousMailbox = mailbox.deriveMailbox(userIdentity.seed, timestamp - 25 * 60 * 60 * 1000)
+        val mailboxHashes = listOf(currentMailbox, previousMailbox).distinct()
+
+        fetcher.fetchMessages(mailboxHashes, epoch)
+            .onSuccess { messageRecords ->
+                Log.d(TAG, "📥 [SYNC] Received ${messageRecords.size} messages from Supabase")
+
+                val processedIds = mutableListOf<String>()
+
+                messageRecords.forEach { record ->
+                    val message = parseSupabaseMessage(record)
                     if (message != null) {
                         receiveMessage(message)
                         newMessageCount++
+                        processedIds.add(record.id)
                     } else {
-                        Log.w(TAG, "⚠️ [SYNC] Failed to parse message ${networkMessage.
-                        messageId}")
+                        Log.w(TAG, "⚠️ [SYNC] Failed to parse message ${record.id}")
                     }
+                }
+
+                // Delete messages from server after successful processing
+                if (processedIds.isNotEmpty()) {
+                    fetcher.deleteMessages(processedIds)
                 }
             }
             .onFailure { error ->
@@ -505,41 +533,43 @@ class MessageRepository(
     }
 
     /**
-     * Parse a received network message into a Message domain object.
+     * Parse a Supabase message record into a Message domain object.
      * Decrypts the message content.
      */
-    private suspend fun parseReceivedMessage(networkMessage: ReceivedMessage): Message? {
+    private suspend fun parseSupabaseMessage(record: MessageRecord): Message? {
         return try {
-            // Decrypt the message
-            // For Phase 2, we'll use a placeholder sender ID
-            // In Phase 3, sender identity will be included in the message metadata
-            val senderId = "unknown" // TODO: Extract from message metadata
+            // Decode base64 ciphertext
+            val encryptedPayload = Base64.decode(record.ciphertext, Base64.NO_WRAP)
+
+            // TODO: Extract sender ID from message envelope
+            // For now, use unknown sender
+            val senderId = "unknown"
 
             val plaintext = if (encryptionService != null) {
-                val decrypted = encryptionService.decryptMessage(networkMessage.encryptedPayload, senderId)
+                val decrypted = encryptionService.decryptMessage(encryptedPayload, senderId)
                 if (decrypted == null) {
-                    Log.e(TAG, "❌ [DECRYPT_FAILED] Failed to decrypt message")
+                    Log.e(TAG, "❌ [DECRYPT_FAILED] Failed to decrypt message ${record.id}")
                     return null
                 }
                 decrypted
             } else {
                 // Fallback: no encryption (for testing only)
                 Log.w(TAG, "⚠️  [NO_ENCRYPTION] Receiving unencrypted message (testing mode)")
-                networkMessage.encryptedPayload.decodeToString()
+                encryptedPayload.decodeToString()
             }
 
             // Create message
             val message = Message(
-                id = networkMessage.messageId,
+                id = record.id,
                 conversationId = senderId,
                 senderId = senderId,
                 recipientId = "me",
                 content = MessageContent.Text(plaintext),
                 direction = MessageDirection.INCOMING,
-                timestamp = networkMessage.serverTimestamp,
+                timestamp = System.currentTimeMillis(), // TODO: Extract from message envelope
                 status = MessageStatus.DELIVERED,
-                deliveredAt = networkMessage.serverTimestamp,
-                encryptedPayload = networkMessage.encryptedPayload
+                deliveredAt = System.currentTimeMillis(),
+                encryptedPayload = encryptedPayload
             )
 
             Log.d(TAG, "✓ [MESSAGE_RECEIVED] messageId=${message.id}, content=\"$plaintext\"")

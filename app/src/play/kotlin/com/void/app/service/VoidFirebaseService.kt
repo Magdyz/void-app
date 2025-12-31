@@ -7,7 +7,14 @@ import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import com.void.block.identity.data.IdentityRepository
 import com.void.block.messaging.sync.MessageSyncWorker
+import com.void.slate.network.push.PushRegistration
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import org.koin.android.ext.android.inject
 
 /**
  * VoidFirebaseService - FCM receiver for payload-less "tickle" notifications.
@@ -34,6 +41,13 @@ import com.void.block.messaging.sync.MessageSyncWorker
  */
 class VoidFirebaseService : FirebaseMessagingService() {
 
+    // Inject dependencies via Koin
+    private val pushRegistration: PushRegistration by inject()
+    private val identityRepository: IdentityRepository by inject()
+
+    // Service-scoped coroutine scope
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     companion object {
         private const val TAG = "VoidFirebaseService"
     }
@@ -48,17 +62,38 @@ class VoidFirebaseService : FirebaseMessagingService() {
         Log.d(TAG, "🔑 New FCM token generated")
         Log.d(TAG, "Token (first 10 chars): ${token.take(10)}...")
 
-        // TODO: Send this token to Void server securely
-        // - Authenticate using Identity keys
-        // - Server stores token mapped to Account ID
-        // - Server can now send wake-up tickles to this device
-        //
-        // Example API call:
-        // POST /api/v1/register-push-token
-        // Headers: X-Account-ID: <identity>, X-Signature: <signed request>
-        // Body: { "fcm_token": "<token>", "platform": "android" }
+        // Register token with Supabase server
+        serviceScope.launch {
+            try {
+                // Get user's identity
+                val identity = identityRepository.getIdentity()
+                if (identity == null) {
+                    Log.w(TAG, "⚠️  No identity found - cannot register push token")
+                    Log.w(TAG, "   Push registration will occur after identity is created")
+                    return@launch
+                }
 
-        Log.d(TAG, "⚠️  TODO: Implement token registration with Void server")
+                // Register FCM token with current mailbox
+                val result = pushRegistration.register(
+                    identitySeed = identity.seed,
+                    fcmToken = token
+                )
+
+                result.fold(
+                    onSuccess = {
+                        Log.d(TAG, "✅ Push token registered successfully")
+                        Log.d(TAG, "   Server will send notifications to this device")
+                    },
+                    onFailure = { error ->
+                        Log.e(TAG, "❌ Push token registration failed: ${error.message}", error)
+                        Log.e(TAG, "   Will retry on next app start or token refresh")
+                    }
+                )
+
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Exception during push registration: ${e.message}", e)
+            }
+        }
     }
 
     /**
