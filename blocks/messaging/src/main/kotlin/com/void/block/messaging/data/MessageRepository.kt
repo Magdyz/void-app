@@ -492,7 +492,8 @@ class MessageRepository(
                         receiveMessage(message)
                         newMessageCount++
                     } else {
-                        Log.w(TAG, "⚠️ [SYNC] Failed to parse message ${networkMessage.messageId}")
+                        Log.w(TAG, "⚠️ [SYNC] Failed to parse message ${networkMessage.
+                        messageId}")
                     }
                 }
             }

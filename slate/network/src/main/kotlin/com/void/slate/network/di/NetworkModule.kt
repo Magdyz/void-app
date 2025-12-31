@@ -105,7 +105,8 @@ val networkModule = module {
             KtorNetworkClient(
                 httpClient = get(),
                 config = config,
-                retryPolicy = get()
+                retryPolicy = get(),
+                accountIdProvider = get()  // Injected from app layer
             )
         }
     }

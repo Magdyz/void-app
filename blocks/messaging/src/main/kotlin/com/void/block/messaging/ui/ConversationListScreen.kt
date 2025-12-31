@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -12,24 +13,44 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.void.block.messaging.ui.components.ConversationItem
+import com.void.block.messaging.ui.components.IdentityDialog
 import org.koin.androidx.compose.koinViewModel
 
 /**
  * Conversation list screen - shows all active conversations.
+ *
+ * @param userIdentity The user's three-word identity (e.g., "ghost.paper.forty")
+ *                     Pass null if identity is not yet available
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConversationListScreen(
     onConversationClick: (String) -> Unit,
     onNewConversation: () -> Unit,
+    userIdentity: String? = null,
     viewModel: ConversationListViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    var showIdentityDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Messages") },
+                navigationIcon = {
+                    // Ghost/Profile icon - only show if identity is available
+                    if (userIdentity != null) {
+                        IconButton(onClick = {
+                            showIdentityDialog = true
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = "Your identity",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                },
                 actions = {
                     IconButton(onClick = onNewConversation) {
                         Icon(
@@ -79,6 +100,14 @@ fun ConversationListScreen(
                 }
             }
         }
+    }
+
+    // Identity dialog
+    if (showIdentityDialog && userIdentity != null) {
+        IdentityDialog(
+            identity = userIdentity!!,
+            onDismiss = { showIdentityDialog = false }
+        )
     }
 }
 

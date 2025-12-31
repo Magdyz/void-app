@@ -42,3 +42,8 @@ include(":blocks:contacts")      // Contact management - Phase 2 ✅
 // APP (Shell) - Just wiring, no logic
 // ═══════════════════════════════════════════════════════════════════
 include(":app")
+
+// ═══════════════════════════════════════════════════════════════════
+// SERVER (Backend) - Privacy-first relay server
+// ═══════════════════════════════════════════════════════════════════
+include(":server")

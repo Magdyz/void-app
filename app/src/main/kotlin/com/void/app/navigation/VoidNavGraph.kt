@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -15,10 +16,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import com.void.block.identity.data.IdentityRepository
 import com.void.block.identity.ui.IdentityScreen
 import com.void.block.rhythm.ui.*
 import com.void.slate.navigation.Routes
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 
 /**
  * Main navigation graph for VOID app.
@@ -217,6 +220,13 @@ fun VoidNavGraph(
         // ═══════════════════════════════════════════════════════════════
 
         composable(Routes.MESSAGES_LIST) {
+            val identityRepository: IdentityRepository = koinInject()
+
+            // Retrieve user's identity
+            val userIdentity by produceState<String?>(initialValue = null) {
+                value = identityRepository.getIdentity()?.formatted
+            }
+
             com.void.block.messaging.ui.ConversationListScreen(
                 onConversationClick = { conversationId ->
                     // Use conversationId as contactId for 1:1 chats
@@ -224,7 +234,8 @@ fun VoidNavGraph(
                 },
                 onNewConversation = {
                     navController.navigate(Routes.CONTACTS_LIST)
-                }
+                },
+                userIdentity = userIdentity
             )
         }
 

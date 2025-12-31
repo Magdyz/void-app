@@ -22,5 +22,5 @@ dependencies {
 
     // Blocks are isolated - no direct dependencies on other blocks
     // Cross-block communication via EventBus only
-    // Dependencies injected at runtime via Koin in app module
+    // Identity is passed as a parameter from the app layer
 }

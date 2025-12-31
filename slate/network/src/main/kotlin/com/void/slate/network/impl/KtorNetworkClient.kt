@@ -14,6 +14,7 @@ import io.ktor.client.call.body
 import io.ktor.client.plugins.ClientRequestException
 import io.ktor.client.plugins.ServerResponseException
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -40,7 +41,8 @@ import java.net.UnknownHostException
 class KtorNetworkClient(
     private val httpClient: HttpClient,
     private val config: NetworkConfig,
-    private val retryPolicy: RetryPolicy
+    private val retryPolicy: RetryPolicy,
+    private val accountIdProvider: suspend () -> String
 ) : NetworkClient {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -81,7 +83,9 @@ class KtorNetworkClient(
     override suspend fun receiveMessages(since: Long?): Result<List<ReceivedMessage>> {
         return retryPolicy.executeWithRetry {
             executeRequest {
+                val accountId = accountIdProvider()
                 val response = httpClient.get("${config.apiBaseUrl}/messages") {
+                    header("X-Account-ID", accountId)
                     since?.let { parameter("since", it) }
                 }
                 response.body<List<ReceivedMessage>>()

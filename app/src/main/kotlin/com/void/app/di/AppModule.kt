@@ -65,6 +65,17 @@ val appModule = module {
     // Keystore Manager - hardware-backed key storage
     single { KeystoreManager(get<Context>()) }
 
+    // Account ID Provider - provides identity for network authentication
+    // This lambda is injected into NetworkClient to add X-Account-ID header
+    single<suspend () -> String> {
+        val identityRepo = get<com.void.block.identity.data.IdentityRepository>()
+        // Return a suspend lambda that fetches the identity when called
+        suspend {
+            identityRepo.getIdentity()?.formatted
+                ?: error("No identity available for network authentication")
+        }
+    }
+
     // Message Encryption Service - bridges blocks for secure messaging
     // This lives in app module because it needs access to both identity and contacts
     single<MessageEncryptionService> {
