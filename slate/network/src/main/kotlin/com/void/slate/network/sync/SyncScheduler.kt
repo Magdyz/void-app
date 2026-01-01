@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
-import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
@@ -16,7 +15,6 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkRequest
-import androidx.work.WorkerParameters
 import com.void.slate.network.push.PushRegistration
 import java.util.concurrent.TimeUnit
 
@@ -67,7 +65,7 @@ class SyncScheduler(
 
         // Use class name string to avoid module dependency issues
         @Suppress("UNCHECKED_CAST")
-        val workerClass = Class.forName("com.void.block.messaging.sync.MessageSyncWorker") as Class<out CoroutineWorker>
+        val workerClass = Class.forName("com.void.block.messaging.sync.MessageSyncWorker") as Class<out androidx.work.ListenableWorker>
 
         val syncRequest = PeriodicWorkRequest.Builder(
             workerClass,
@@ -111,7 +109,7 @@ class SyncScheduler(
 
         // Use class name string to avoid module dependency issues
         @Suppress("UNCHECKED_CAST")
-        val workerClass = Class.forName("com.void.block.messaging.sync.MessageSyncWorker") as Class<out CoroutineWorker>
+        val workerClass = Class.forName("com.void.block.messaging.sync.MessageSyncWorker") as Class<out androidx.work.ListenableWorker>
 
         val syncRequest = OneTimeWorkRequest.Builder(workerClass)
             .setConstraints(constraints)
@@ -143,8 +141,20 @@ class SyncScheduler(
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
-        val rotationRequest = PeriodicWorkRequestBuilder<MailboxRotationWorker>(
-            intervalHours, TimeUnit.HOURS
+        // Use class name string to avoid module dependency issues
+        // MailboxRotationWorker is in app module where it has access to all dependencies
+        @Suppress("UNCHECKED_CAST")
+        val workerClass = try {
+            Class.forName("com.void.app.worker.MailboxRotationWorker") as Class<out androidx.work.ListenableWorker>
+        } catch (e: ClassNotFoundException) {
+            Log.w(TAG, "⚠️  MailboxRotationWorker not found - rotation disabled")
+            return
+        }
+
+        val rotationRequest = PeriodicWorkRequest.Builder(
+            workerClass,
+            intervalHours, TimeUnit.HOURS,
+            15, TimeUnit.MINUTES // Flex period: can run 15 min early
         )
             .setConstraints(constraints)
             .setBackoffCriteria(
@@ -218,53 +228,7 @@ class SyncScheduler(
 }
 
 // MessageSyncWorker implementation is in blocks/messaging/sync/MessageSyncWorker.kt
-
-/**
- * WorkManager worker for mailbox rotation checks.
- */
-class MailboxRotationWorker(
-    context: Context,
-    params: WorkerParameters
-) : CoroutineWorker(context, params) {
-
-    override suspend fun doWork(): Result {
-        Log.d(TAG, "🔄 Mailbox rotation worker started")
-
-        return try {
-            // Get identity seed
-            // TODO: Inject dependencies via Koin
-            // For now, this is a placeholder
-            // val identityRepo = get<IdentityRepository>()
-            // val identity = identityRepo.getIdentity()
-            // val fcmToken = FirebaseMessaging.getInstance().token.await()
-
-            // Check if rotation needed
-            // val pushRegistration = get<PushRegistration>()
-            // if (pushRegistration.needsRotation()) {
-            //     pushRegistration.rotate(identity.seed, fcmToken)
-            //     Log.d(TAG, "✓ Mailbox rotated successfully")
-            // } else {
-            //     Log.d(TAG, "○ No rotation needed yet")
-            // }
-
-            Log.d(TAG, "✓ Rotation check completed")
-            Result.success()
-
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Rotation check failed: ${e.message}", e)
-
-            if (runAttemptCount < 3) {
-                Result.retry()
-            } else {
-                Result.failure()
-            }
-        }
-    }
-
-    companion object {
-        private const val TAG = "MailboxRotationWorker"
-    }
-}
+// MailboxRotationWorker implementation is in app/src/main/kotlin/com/void/app/worker/MailboxRotationWorker.kt
 
 /**
  * Sync status information.

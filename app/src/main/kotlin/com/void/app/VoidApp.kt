@@ -10,9 +10,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 import org.koin.java.KoinJavaComponent.inject
+import com.void.block.identity.data.IdentityRepository
+import com.void.slate.network.push.PushRegistration
 
 /**
  * VOID Application
@@ -43,6 +46,9 @@ class VoidApp : Application() {
 
         // Initialize message sync infrastructure
         initializeSync()
+
+        // Initialize push notification registration (Play flavor only)
+        initializePushRegistration()
     }
 
     /**
@@ -87,6 +93,10 @@ class VoidApp : Application() {
                 applicationScope.launch {
                     eventBus.observe<com.void.block.identity.events.IdentityCreated>().collect { event ->
                         Log.d(TAG, "🎉 Identity created: ${event.identityFormatted}")
+
+                        // Register FCM token for push notifications (Play flavor only)
+                        registerFcmTokenForIdentity()
+
                         Log.d(TAG, "   Triggering immediate sync for new identity...")
                         syncScheduler.triggerImmediateSync()
                         Log.d(TAG, "   ✅ Sync triggered for new identity")
@@ -98,6 +108,151 @@ class VoidApp : Application() {
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Failed to initialize sync: ${e.message}", e)
             }
+        }
+    }
+
+    /**
+     * Initialize push notification registration (Play flavor only).
+     *
+     * Self-healing mechanism that registers FCM token on every app start.
+     * This ensures registration is recovered if:
+     * - Token was never registered (identity created before FCM token)
+     * - Registration expired or was lost
+     * - Mailbox rotated but registration wasn't updated
+     *
+     * Gracefully handles FOSS flavor (no Firebase) without crashing.
+     */
+    private fun initializePushRegistration() {
+        applicationScope.launch(Dispatchers.IO) {
+            try {
+                // Check if Firebase is available (Play flavor only)
+                val firebaseClass = Class.forName("com.google.firebase.messaging.FirebaseMessaging")
+                val getInstance = firebaseClass.getMethod("getInstance")
+                val firebaseMessaging = getInstance.invoke(null)
+                val getTokenMethod = firebaseClass.getMethod("getToken")
+                val tokenTask = getTokenMethod.invoke(firebaseMessaging)
+
+                // Manually await the Task using suspendCoroutine to avoid dependency on play-services
+                val token = awaitFirebaseTask(tokenTask)
+
+                // Register token if we have an identity
+                val identityRepo: IdentityRepository by inject(IdentityRepository::class.java)
+                val identity = identityRepo.getIdentity()
+
+                if (identity != null) {
+                    val pushRegistration: PushRegistration by inject(PushRegistration::class.java)
+                    pushRegistration.register(identity.seed, token).fold(
+                        onSuccess = {
+                            Log.d(TAG, "✅ FCM self-heal: Token registered on app startup")
+                        },
+                        onFailure = { error ->
+                            Log.e(TAG, "❌ FCM self-heal failed: ${error.message}", error)
+                        }
+                    )
+                } else {
+                    Log.d(TAG, "⚠️  FCM self-heal: No identity yet, will register after onboarding")
+                }
+
+            } catch (e: ClassNotFoundException) {
+                // FOSS flavor - Firebase not available
+                Log.d(TAG, "ℹ️  FCM not available (FOSS flavor) - using fallback polling")
+            } catch (e: Exception) {
+                // Other errors (network, etc.) - non-critical
+                Log.w(TAG, "⚠️  FCM self-heal check failed (non-critical): ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Register FCM token for the current identity.
+     *
+     * Called when an identity is created to immediately register for push notifications.
+     * Gracefully handles FOSS flavor without crashing.
+     */
+    private fun registerFcmTokenForIdentity() {
+        applicationScope.launch(Dispatchers.IO) {
+            try {
+                // Check if Firebase is available (Play flavor only)
+                val firebaseClass = Class.forName("com.google.firebase.messaging.FirebaseMessaging")
+                val getInstance = firebaseClass.getMethod("getInstance")
+                val firebaseMessaging = getInstance.invoke(null)
+                val getTokenMethod = firebaseClass.getMethod("getToken")
+                val tokenTask = getTokenMethod.invoke(firebaseMessaging)
+
+                // Get token asynchronously
+                val token = awaitFirebaseTask(tokenTask)
+
+                // Get identity and register
+                val identityRepo: IdentityRepository by inject(IdentityRepository::class.java)
+                val identity = identityRepo.getIdentity()
+
+                if (identity != null) {
+                    val pushRegistration: PushRegistration by inject(PushRegistration::class.java)
+                    pushRegistration.register(identity.seed, token).fold(
+                        onSuccess = {
+                            Log.d(TAG, "🔔 FCM token registered for new identity")
+                        },
+                        onFailure = { error ->
+                            Log.e(TAG, "❌ FCM registration failed: ${error.message}", error)
+                        }
+                    )
+                }
+
+            } catch (e: ClassNotFoundException) {
+                // FOSS flavor - Firebase not available
+                Log.d(TAG, "ℹ️  FCM not available (FOSS flavor) - skipping push registration")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ FCM registration failed: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Await a Firebase Task using reflection (to avoid dependency on play-services).
+     *
+     * Uses suspendCancellableCoroutine to manually await the Task completion.
+     */
+    private suspend fun awaitFirebaseTask(task: Any): String = suspendCancellableCoroutine { continuation ->
+        try {
+            // Get Task methods via reflection
+            val taskClass = task.javaClass
+            val addOnSuccessListenerMethod = taskClass.getMethod(
+                "addOnSuccessListener",
+                Class.forName("com.google.android.gms.tasks.OnSuccessListener")
+            )
+            val addOnFailureListenerMethod = taskClass.getMethod(
+                "addOnFailureListener",
+                Class.forName("com.google.android.gms.tasks.OnFailureListener")
+            )
+
+            // Create success listener
+            val successListenerClass = Class.forName("com.google.android.gms.tasks.OnSuccessListener")
+            val successListener = java.lang.reflect.Proxy.newProxyInstance(
+                successListenerClass.classLoader,
+                arrayOf(successListenerClass)
+            ) { _, _, args ->
+                val result = args[0] as String
+                continuation.resumeWith(kotlin.Result.success(result))
+                null
+            }
+
+            // Create failure listener
+            val failureListenerClass = Class.forName("com.google.android.gms.tasks.OnFailureListener")
+            val failureListener = java.lang.reflect.Proxy.newProxyInstance(
+                failureListenerClass.classLoader,
+                arrayOf(failureListenerClass)
+            ) { _, _, args ->
+                val exception = args[0] as Exception
+                continuation.resumeWith(kotlin.Result.failure(exception))
+                null
+            }
+
+            // Attach listeners
+            addOnSuccessListenerMethod.invoke(task, successListener)
+            addOnFailureListenerMethod.invoke(task, failureListener)
+
+        } catch (e: Exception) {
+            continuation.resumeWith(kotlin.Result.failure(e))
         }
     }
 }

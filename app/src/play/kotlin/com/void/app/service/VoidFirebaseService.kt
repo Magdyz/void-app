@@ -5,6 +5,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
+import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.void.block.identity.data.IdentityRepository
@@ -14,6 +15,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import org.koin.android.ext.android.inject
 
 /**
@@ -55,11 +57,16 @@ class VoidFirebaseService : FirebaseMessagingService() {
     /**
      * Called when a new FCM token is generated.
      * This happens on first install, or when token is rotated by Google.
+     *
+     * NOTE: This may be called BEFORE an identity is created during onboarding.
+     * In that case, registration will be retried when:
+     * 1. Identity is created (via IdentityCreated event in VoidApp)
+     * 2. App restarts (via self-healing check in VoidApp)
      */
     override fun onNewToken(token: String) {
         super.onNewToken(token)
 
-        Log.d(TAG, "🔑 New FCM token generated")
+        Log.d(TAG, "🔑 FCM token refreshed by Google")
         Log.d(TAG, "Token (first 10 chars): ${token.take(10)}...")
 
         // Register token with Supabase server
@@ -68,8 +75,9 @@ class VoidFirebaseService : FirebaseMessagingService() {
                 // Get user's identity
                 val identity = identityRepository.getIdentity()
                 if (identity == null) {
-                    Log.w(TAG, "⚠️  No identity found - cannot register push token")
-                    Log.w(TAG, "   Push registration will occur after identity is created")
+                    Log.w(TAG, "⚠️  No identity found - cannot register push token yet")
+                    Log.w(TAG, "   ✓ Will auto-register when identity is created")
+                    Log.w(TAG, "   ✓ Or on next app start (self-healing)")
                     return@launch
                 }
 
@@ -81,12 +89,12 @@ class VoidFirebaseService : FirebaseMessagingService() {
 
                 result.fold(
                     onSuccess = {
-                        Log.d(TAG, "✅ Push token registered successfully")
-                        Log.d(TAG, "   Server will send notifications to this device")
+                        Log.d(TAG, "✅ FCM token registered after Google refresh")
+                        Log.d(TAG, "   Server will send push notifications to this device")
                     },
                     onFailure = { error ->
-                        Log.e(TAG, "❌ Push token registration failed: ${error.message}", error)
-                        Log.e(TAG, "   Will retry on next app start or token refresh")
+                        Log.e(TAG, "❌ FCM token registration failed: ${error.message}", error)
+                        Log.e(TAG, "   Will retry on next app start (self-healing)")
                     }
                 )
 
