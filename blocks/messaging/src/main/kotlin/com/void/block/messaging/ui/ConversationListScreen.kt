@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -95,40 +96,46 @@ fun ConversationListScreen(
                 )
             }
 
-            Box(modifier = Modifier.fillMaxSize()) {
-                when (val currentState = state) {
-                is ConversationListState.Loading -> {
-                    CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center),
-                        color = TerminalStandard.Text
-                    )
-                }
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = { viewModel.syncMessages() },
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    when (val currentState = state) {
+                    is ConversationListState.Loading -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.align(Alignment.Center),
+                            color = TerminalStandard.Text
+                        )
+                    }
 
-                is ConversationListState.Empty -> {
-                    EmptyConversationsView(
-                        onNewConversation = onNewConversation,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
-                }
+                    is ConversationListState.Empty -> {
+                        EmptyConversationsView(
+                            onNewConversation = onNewConversation,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
 
-                is ConversationListState.Success -> {
-                    ConversationList(
-                        conversations = currentState.conversations,
-                        onConversationClick = onConversationClick,
-                        onConversationDelete = { conversationId ->
-                            viewModel.deleteConversation(conversationId)
-                        }
-                    )
-                }
+                    is ConversationListState.Success -> {
+                        ConversationList(
+                            conversations = currentState.conversations,
+                            onConversationClick = onConversationClick,
+                            onConversationDelete = { conversationId ->
+                                viewModel.deleteConversation(conversationId)
+                            }
+                        )
+                    }
 
-                is ConversationListState.Error -> {
-                    ErrorView(
-                        message = currentState.message,
-                        onRetry = { viewModel.refresh() },
-                        modifier = Modifier.align(Alignment.Center)
-                    )
+                    is ConversationListState.Error -> {
+                        ErrorView(
+                            message = currentState.message,
+                            onRetry = { viewModel.refresh() },
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
                 }
-            }
+                }
             }
         }
     }
