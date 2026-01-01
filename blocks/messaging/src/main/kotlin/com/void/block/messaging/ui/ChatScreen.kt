@@ -83,7 +83,8 @@ fun ChatScreen(
             when (val currentState = state) {
                 is ChatState.Loading -> {
                     CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center)
+                        modifier = Modifier.align(Alignment.Center),
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
 

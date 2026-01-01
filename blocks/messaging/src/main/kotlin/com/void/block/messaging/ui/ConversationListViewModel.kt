@@ -22,6 +22,9 @@ class ConversationListViewModel(
     private val _state = MutableStateFlow<ConversationListState>(ConversationListState.Loading)
     val state: StateFlow<ConversationListState> = _state.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     init {
         loadConversations()
     }
@@ -91,12 +94,19 @@ class ConversationListViewModel(
     fun syncMessages() {
         viewModelScope.launch {
             try {
+                _isRefreshing.value = true
                 // Trigger immediate sync from server
                 syncScheduler.triggerImmediateSync()
                 // The sync will happen in background, and messages will auto-update
                 // through the repository's Flow
+
+                // Keep refreshing indicator visible for a short time
+                // to give user feedback that sync was triggered
+                kotlinx.coroutines.delay(1000)
             } catch (e: Exception) {
                 // Sync error - non-critical, periodic sync will retry
+            } finally {
+                _isRefreshing.value = false
             }
         }
     }

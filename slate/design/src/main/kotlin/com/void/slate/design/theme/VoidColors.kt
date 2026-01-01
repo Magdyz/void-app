@@ -3,91 +3,91 @@ package com.void.slate.design.theme
 import androidx.compose.ui.graphics.Color
 
 /**
- * VOID Color Palette
+ * VOID Color Palette - 2026 Minimal Black & White Edition
  *
- * Privacy-focused dark theme with high contrast and minimal distraction.
- * Color palette emphasizes security, privacy, and clarity.
+ * Bold, contrasty, modern theme with pure black and white.
+ * Maximum contrast for clarity and focus.
  */
 object VoidColors {
 
     // ═══════════════════════════════════════════════════════════════════
-    // Primary - Deep Purple (trust, security, privacy)
+    // Primary - Pure Black (bold, modern, minimal)
     // ═══════════════════════════════════════════════════════════════════
-    val Primary = Color(0xFF9C27B0)          // Deep Purple 500
-    val PrimaryVariant = Color(0xFF6A1B9A)   // Deep Purple 800
-    val PrimaryLight = Color(0xFFBA68C8)     // Deep Purple 300
-    val OnPrimary = Color(0xFFFFFFFF)        // White text on primary
+    val Primary = Color(0xFF000000)          // Pure Black
+    val PrimaryVariant = Color(0xFF000000)   // Pure Black
+    val PrimaryLight = Color(0xFF1A1A1A)     // Near Black
+    val OnPrimary = Color(0xFFFFFFFF)        // Pure White text
 
     // ═══════════════════════════════════════════════════════════════════
-    // Secondary - Dark Teal (encrypted, secure)
+    // Secondary - Pure White (clean, clear)
     // ═══════════════════════════════════════════════════════════════════
-    val Secondary = Color(0xFF00897B)        // Teal 600
-    val SecondaryVariant = Color(0xFF00695C) // Teal 800
-    val SecondaryLight = Color(0xFF4DB6AC)   // Teal 300
-    val OnSecondary = Color(0xFFFFFFFF)      // White text on secondary
+    val Secondary = Color(0xFFFFFFFF)        // Pure White
+    val SecondaryVariant = Color(0xFFEEEEEE) // Near White
+    val SecondaryLight = Color(0xFFFFFFFF)   // Pure White
+    val OnSecondary = Color(0xFF000000)      // Pure Black text
 
     // ═══════════════════════════════════════════════════════════════════
-    // Background - True Black for OLED (privacy, battery saving)
+    // Background - Pure Black for OLED (modern, sleek)
     // ═══════════════════════════════════════════════════════════════════
-    val Background = Color(0xFF000000)       // Pure black for OLED
-    val BackgroundElevated = Color(0xFF121212) // Slightly elevated
-    val OnBackground = Color(0xFFE0E0E0)     // Light gray text
+    val Background = Color(0xFF000000)       // Pure Black
+    val BackgroundElevated = Color(0xFF0A0A0A) // Barely elevated
+    val OnBackground = Color(0xFFFFFFFF)     // Pure White text
 
     // ═══════════════════════════════════════════════════════════════════
     // Surface - Cards, dialogs, sheets
     // ═══════════════════════════════════════════════════════════════════
-    val Surface = Color(0xFF1E1E1E)          // Dark gray
-    val SurfaceVariant = Color(0xFF2C2C2C)   // Slightly lighter
-    val OnSurface = Color(0xFFE0E0E0)        // Light gray text
-    val OnSurfaceVariant = Color(0xFFB0B0B0) // Dimmed text
+    val Surface = Color(0xFF000000)          // Pure Black
+    val SurfaceVariant = Color(0xFF0D0D0D)   // Slightly lighter black
+    val OnSurface = Color(0xFFFFFFFF)        // Pure White text
+    val OnSurfaceVariant = Color(0xFFCCCCCC) // Light gray text
 
     // ═══════════════════════════════════════════════════════════════════
     // Outlines and Dividers
     // ═══════════════════════════════════════════════════════════════════
-    val Outline = Color(0xFF3E3E3E)          // Subtle borders
-    val OutlineVariant = Color(0xFF2C2C2C)   // Even more subtle
+    val Outline = Color(0xFF333333)          // Dark gray borders
+    val OutlineVariant = Color(0xFF1A1A1A)   // Subtle borders
 
     // ═══════════════════════════════════════════════════════════════════
-    // Status Colors
+    // Status Colors - Minimal black/white with subtle grays
     // ═══════════════════════════════════════════════════════════════════
-    val Error = Color(0xFFCF6679)            // Soft red (less alarming)
+    val Error = Color(0xFFFFFFFF)            // White for errors
     val OnError = Color(0xFF000000)          // Black text on error
-    val ErrorContainer = Color(0xFF4A1F1F)   // Dark red background
-    val OnErrorContainer = Color(0xFFFFB4AB) // Light red text
+    val ErrorContainer = Color(0xFF1A1A1A)   // Dark gray background
+    val OnErrorContainer = Color(0xFFFFFFFF) // White text
 
-    val Success = Color(0xFF66BB6A)          // Green 400
+    val Success = Color(0xFFFFFFFF)          // White for success
     val OnSuccess = Color(0xFF000000)        // Black text on success
-    val SuccessContainer = Color(0xFF1B3A1C) // Dark green background
-    val OnSuccessContainer = Color(0xFFA5D6A7) // Light green text
+    val SuccessContainer = Color(0xFF1A1A1A) // Dark gray background
+    val OnSuccessContainer = Color(0xFFFFFFFF) // White text
 
-    val Warning = Color(0xFFFFB74D)          // Orange 300
+    val Warning = Color(0xFFFFFFFF)          // White for warning
     val OnWarning = Color(0xFF000000)        // Black text on warning
-    val WarningContainer = Color(0xFF4A3A1F) // Dark orange background
-    val OnWarningContainer = Color(0xFFFFCC80) // Light orange text
+    val WarningContainer = Color(0xFF1A1A1A) // Dark gray background
+    val OnWarningContainer = Color(0xFFFFFFFF) // White text
 
     // ═══════════════════════════════════════════════════════════════════
-    // Special - Message expiry indicators
+    // Special - Message expiry indicators (grayscale)
     // ═══════════════════════════════════════════════════════════════════
-    val GhostMode = Color(0xFF9575CD)        // Purple - 30s ephemeral
-    val ShadowMode = Color(0xFF7986CB)       // Indigo - 24h
-    val MemoryMode = Color(0xFF64B5F6)       // Blue - 7d
-    val ArchiveMode = Color(0xFF81C784)      // Green - permanent
+    val GhostMode = Color(0xFFFFFFFF)        // White - 30s ephemeral
+    val ShadowMode = Color(0xFFCCCCCC)       // Light gray - 24h
+    val MemoryMode = Color(0xFF999999)       // Medium gray - 7d
+    val ArchiveMode = Color(0xFF666666)      // Dark gray - permanent
 
     // ═══════════════════════════════════════════════════════════════════
     // Identity Display - Monospace friendly
     // ═══════════════════════════════════════════════════════════════════
-    val IdentityPrimary = Primary            // Highlighted identity
-    val IdentitySecondary = Color(0xFF757575) // Dimmed identity
-    val IdentitySeparator = Color(0xFF424242) // Dots between words
+    val IdentityPrimary = Color(0xFFFFFFFF)  // White highlighted identity
+    val IdentitySecondary = Color(0xFF999999) // Gray dimmed identity
+    val IdentitySeparator = Color(0xFF333333) // Dark gray dots
 
     // ═══════════════════════════════════════════════════════════════════
     // Rhythm Pad - No visual feedback for security
     // ═══════════════════════════════════════════════════════════════════
-    val RhythmPadBackground = Surface        // Neutral surface
-    val RhythmPadHint = Color(0xFF424242)    // Very subtle hint text
+    val RhythmPadBackground = Surface        // Black surface
+    val RhythmPadHint = Color(0xFF333333)    // Very subtle hint text
 
     // ═══════════════════════════════════════════════════════════════════
     // Scrim - For modals and overlays
     // ═══════════════════════════════════════════════════════════════════
-    val Scrim = Color(0x99000000)            // 60% black overlay
+    val Scrim = Color(0xCC000000)            // 80% black overlay
 }

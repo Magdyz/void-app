@@ -114,7 +114,9 @@ fun IdentityScreen(
         // Identity Display
         when (val loadingState = state.loadingState) {
             is LoadingState.Loading -> {
-                CircularProgressIndicator()
+                CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.onSurface
+                )
             }
             is LoadingState.Error -> {
                 Text(
@@ -153,7 +155,8 @@ fun IdentityScreen(
                 if (state.isRegenerating) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 } else {
                     Text("Generate New Identity")

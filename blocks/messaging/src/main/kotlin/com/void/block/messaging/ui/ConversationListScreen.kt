@@ -32,6 +32,7 @@ fun ConversationListScreen(
     viewModel: ConversationListViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
     var showIdentityDialog by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -72,15 +73,25 @@ fun ConversationListScreen(
             )
         }
     ) { paddingValues ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            when (val currentState = state) {
+            // Loading indicator when syncing messages
+            if (isRefreshing) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            Box(modifier = Modifier.fillMaxSize()) {
+                when (val currentState = state) {
                 is ConversationListState.Loading -> {
                     CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center)
+                        modifier = Modifier.align(Alignment.Center),
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
 
@@ -108,6 +119,7 @@ fun ConversationListScreen(
                         modifier = Modifier.align(Alignment.Center)
                     )
                 }
+            }
             }
         }
     }
