@@ -1,27 +1,17 @@
 package com.void.slate.crypto.impl
 
 import com.google.crypto.tink.Aead
-import com.google.crypto.tink.BinaryKeysetReader
-import com.google.crypto.tink.BinaryKeysetWriter
-import com.google.crypto.tink.CleartextKeysetHandle
-import com.google.crypto.tink.KeysetHandle
-import com.google.crypto.tink.PublicKeySign
-import com.google.crypto.tink.PublicKeyVerify
 import com.google.crypto.tink.aead.AeadConfig
-import com.google.crypto.tink.aead.AesGcmKeyManager
-import com.google.crypto.tink.integration.android.AndroidKeysetManager
 import com.google.crypto.tink.mac.MacConfig
 import com.google.crypto.tink.signature.SignatureConfig
-import com.google.crypto.tink.signature.Ed25519PrivateKeyManager
+import com.google.crypto.tink.subtle.Ed25519Sign
+import com.google.crypto.tink.subtle.Ed25519Verify
 import com.google.crypto.tink.subtle.Hkdf
 import com.google.crypto.tink.subtle.X25519
 import com.void.slate.crypto.CryptoProvider
 import com.void.slate.crypto.EncryptedData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
-import java.nio.ByteBuffer
 import java.security.GeneralSecurityException
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -34,7 +24,12 @@ import javax.crypto.spec.SecretKeySpec
  * - AES-256-GCM for symmetric encryption
  * - HKDF for key derivation
  * - SHA-256 for hashing
- * - Ed25519 for signatures
+ * - Ed25519 for signatures (raw keys, not Tink keysets)
+ * - X25519 for ECDH key agreement
+ *
+ * SECURITY: All keys are stored as raw bytes (not Tink keysets) to avoid
+ * cleartext key exposure during serialization. Keys are encrypted by
+ * SecureStorage (SQLCipher + Android Keystore).
  */
 class TinkCryptoProvider : CryptoProvider {
 
@@ -118,23 +113,19 @@ class TinkCryptoProvider : CryptoProvider {
 
     override suspend fun generateKeyPair(): com.void.slate.crypto.KeyPair = withContext(Dispatchers.Default) {
         try {
-            // Generate Ed25519 key pair for signatures
-            val privateKeysetHandle = KeysetHandle.generateNew(
-                Ed25519PrivateKeyManager.ed25519Template()
-            )
+            // Generate Ed25519 key pair for signatures using raw keys
+            // This avoids CleartextKeysetHandle vulnerability
+            // Generate random 32-byte seed first
+            val seed = ByteArray(32).apply { secureRandom.nextBytes(this) }
+            val ed25519KeyPair = Ed25519Sign.KeyPair.newKeyPairFromSeed(seed)
 
-            // Get public keyset handle
-            val publicKeysetHandle = privateKeysetHandle.publicKeysetHandle
-
-            // Serialize keysets to bytes
-            val privateKeyBytes = serializeKeyset(privateKeysetHandle)
-            val publicKeyBytes = serializeKeyset(publicKeysetHandle)
-
+            // Return 32-byte seed as private key (sign() will handle expansion)
+            // This is consistent with deriveKeyPairFromSeed for "identity" path
             com.void.slate.crypto.KeyPair(
-                publicKey = publicKeyBytes,
-                privateKey = privateKeyBytes
+                publicKey = ed25519KeyPair.publicKey,  // 32 bytes
+                privateKey = ed25519KeyPair.privateKey  // 32 bytes (just the seed)
             )
-        } catch (e: GeneralSecurityException) {
+        } catch (e: Exception) {
             throw RuntimeException("Key pair generation failed", e)
         }
     }
@@ -151,18 +142,21 @@ class TinkCryptoProvider : CryptoProvider {
                 "encryption" -> {
                     // Generate X25519 key pair for encryption (ECDH)
                     // This is deterministic - same seed always produces same keys
-                    val privateKey = derivedSeed  // Use derived seed as X25519 private key
+                    val privateKey = derivedSeed  // Use derived seed as X25519 private key (32 bytes)
                     val publicKey = X25519.publicFromPrivate(privateKey)
                     Pair(publicKey, privateKey)
                 }
                 "identity" -> {
                     // Generate Ed25519 key pair for signatures
-                    val ed25519KeyPair = com.google.crypto.tink.subtle.Ed25519Sign.KeyPair.newKeyPairFromSeed(derivedSeed)
+                    val ed25519KeyPair = Ed25519Sign.KeyPair.newKeyPairFromSeed(derivedSeed)
+                    // Keep as 32-byte seed for backward compatibility with existing storage
+                    // sign() method will expand to 64 bytes when needed
                     Pair(ed25519KeyPair.publicKey, ed25519KeyPair.privateKey)
                 }
                 else -> {
                     // Default to Ed25519 for backward compatibility
-                    val ed25519KeyPair = com.google.crypto.tink.subtle.Ed25519Sign.KeyPair.newKeyPairFromSeed(derivedSeed)
+                    val ed25519KeyPair = Ed25519Sign.KeyPair.newKeyPairFromSeed(derivedSeed)
+                    // Keep as 32-byte seed for backward compatibility
                     Pair(ed25519KeyPair.publicKey, ed25519KeyPair.privateKey)
                 }
             }
@@ -178,32 +172,45 @@ class TinkCryptoProvider : CryptoProvider {
 
     override suspend fun sign(data: ByteArray, privateKey: ByteArray): ByteArray = withContext(Dispatchers.Default) {
         try {
-            // Deserialize the private keyset
-            val keysetHandle = deserializeKeyset(privateKey)
+            // Use raw Ed25519 private key for signing
+            // This avoids CleartextKeysetHandle vulnerability
+            // privateKey should be the 32-byte seed
+            require(privateKey.size == 32) {
+                "Ed25519 private key (seed) must be 32 bytes, got ${privateKey.size}"
+            }
 
-            // Get the signing primitive
-            val signer = keysetHandle.getPrimitive(PublicKeySign::class.java)
+            // Ed25519Sign constructor expects just the 32-byte seed
+            // It will derive the public key and expanded secret internally
+            val signer = Ed25519Sign(privateKey)
 
             // Sign the data
             signer.sign(data)
-        } catch (e: GeneralSecurityException) {
+        } catch (e: IllegalArgumentException) {
+            throw e
+        } catch (e: Exception) {
             throw RuntimeException("Signing failed", e)
         }
     }
 
     override suspend fun verify(data: ByteArray, signature: ByteArray, publicKey: ByteArray): Boolean = withContext(Dispatchers.Default) {
         try {
-            // Deserialize the public keyset
-            val keysetHandle = deserializeKeyset(publicKey)
+            // Use raw Ed25519 public key (32 bytes) for verification
+            // This avoids CleartextKeysetHandle vulnerability
+            require(publicKey.size == 32) {
+                "Ed25519 public key must be 32 bytes, got ${publicKey.size}"
+            }
 
-            // Get the verification primitive
-            val verifier = keysetHandle.getPrimitive(PublicKeyVerify::class.java)
+            // Create Ed25519 verifier from raw public key
+            val verifier = Ed25519Verify(publicKey)
 
-            // Verify the signature
+            // Verify the signature (throws exception if invalid)
             verifier.verify(signature, data)
             true // If no exception thrown, verification succeeded
+        } catch (e: IllegalArgumentException) {
+            // Invalid key size
+            throw e
         } catch (e: GeneralSecurityException) {
-            // Verification failed
+            // Verification failed (invalid signature or tampered data)
             false
         }
     }
@@ -258,33 +265,5 @@ class TinkCryptoProvider : CryptoProvider {
             cipher.init(javax.crypto.Cipher.DECRYPT_MODE, secretKey, gcmSpec)
             return cipher.doFinal(ciphertext)
         }
-    }
-
-    /**
-     * Serialize a KeysetHandle to bytes.
-     *
-     * WARNING: This uses CleartextKeysetHandle which stores keys unencrypted.
-     * In production, consider using encrypted keyset storage.
-     */
-    private fun serializeKeyset(keysetHandle: KeysetHandle): ByteArray {
-        val outputStream = ByteArrayOutputStream()
-        CleartextKeysetHandle.write(
-            keysetHandle,
-            BinaryKeysetWriter.withOutputStream(outputStream)
-        )
-        return outputStream.toByteArray()
-    }
-
-    /**
-     * Deserialize a KeysetHandle from bytes.
-     *
-     * WARNING: This uses CleartextKeysetHandle which expects unencrypted keys.
-     * In production, consider using encrypted keyset storage.
-     */
-    private fun deserializeKeyset(keysetBytes: ByteArray): KeysetHandle {
-        val inputStream = ByteArrayInputStream(keysetBytes)
-        return CleartextKeysetHandle.read(
-            BinaryKeysetReader.withInputStream(inputStream)
-        )
     }
 }
