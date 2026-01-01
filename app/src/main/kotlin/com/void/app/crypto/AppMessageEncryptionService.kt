@@ -51,13 +51,31 @@ class AppMessageEncryptionService(
             val recipientPublicKey = contact.publicKey
             Log.d(TAG, "🔑 [KEY_LOAD] Recipient publicKey: ${recipientPublicKey.size} bytes")
 
-            // Convert to bytes
-            val plaintext = messageText.toByteArray(Charsets.UTF_8)
-            Log.d(TAG, "🔐 [PLAINTEXT] ${plaintext.size} bytes: \"$messageText\"")
+            // Get my public key to include in sealed sender header
+            // SECURITY: Use public key, NOT seed (seed is secret!)
+            val myPublicKey = identityRepository.getPublicEncryptionKey()
+            if (myPublicKey == null) {
+                Log.e(TAG, "❌ [ENCRYPT_FAILED] My public key not found")
+                return null
+            }
 
-            // Encrypt
+            val mySenderId = myPublicKey.joinToString("") { "%02x".format(it) }
+
+            // Convert message to bytes
+            val messageBytes = messageText.toByteArray(Charsets.UTF_8)
+            Log.d(TAG, "🔐 [MESSAGE] ${messageBytes.size} bytes: \"$messageText\"")
+
+            // Prepend sealed sender header to plaintext
+            val plaintextWithHeader = com.void.block.messaging.crypto.SealedSenderHeader.prependToMessage(
+                senderId = mySenderId,
+                timestamp = System.currentTimeMillis(),
+                messageContent = messageBytes
+            )
+            Log.d(TAG, "📋 [HEADER_ADDED] plaintext with header: ${plaintextWithHeader.size} bytes")
+
+            // Encrypt (plaintext now includes header)
             val encryptedMessage = messageEncryption.encrypt(
-                plaintext = plaintext,
+                plaintext = plaintextWithHeader,
                 recipientPublicKey = recipientPublicKey,
                 senderPrivateKey = myPrivateKey
             )
@@ -129,22 +147,82 @@ class AppMessageEncryptionService(
     override suspend fun getRecipientIdentity(recipientId: String): com.void.block.messaging.crypto.RecipientIdentity? {
         val contact = contactRepository.getContact(recipientId) ?: return null
 
-        // TODO: Contacts need to store the recipient's seed for mailbox derivation
-        // For now, we'll use a placeholder. In a real implementation:
-        // 1. During contact exchange, both parties share their identity seed
-        // 2. The seed is stored in the Contact model
-        // 3. We retrieve it here for mailbox derivation
-
-        // TEMPORARY WORKAROUND: Generate deterministic seed from identity words
-        // This is NOT secure for production - just for testing
-        val tempSeed = (contact.identity.word1 + contact.identity.word2 + contact.identity.word3)
-            .toByteArray()
-            .let { java.security.MessageDigest.getInstance("SHA-256").digest(it) }
-
         return com.void.block.messaging.crypto.RecipientIdentity(
-            seed = tempSeed,
+            seed = contact.identitySeed,
             threeWordIdentity = contact.identity.toString()
         )
+    }
+
+    override suspend fun decryptReceivedMessage(encryptedPayload: ByteArray): com.void.block.messaging.crypto.DecryptedReceivedMessage? {
+        return try {
+            Log.d(TAG, "📥 [RECEIVER_DECRYPT_START] encryptedPayload: ${encryptedPayload.size} bytes")
+
+            // Base64 decode
+            val decoded = Base64.getDecoder().decode(encryptedPayload)
+            Log.d(TAG, "📦 [DESERIALIZE] decoded: ${decoded.size} bytes")
+
+            // Deserialize
+            val encryptedMessage = messageEncryption.deserializeEncryptedMessage(decoded)
+            Log.d(TAG, "📦 [DESERIALIZE] envelope: ciphertext=${encryptedMessage.ciphertext.size} bytes")
+
+            // Get my private key
+            val myPrivateKey = identityRepository.getPrivateEncryptionKey()
+            if (myPrivateKey == null) {
+                Log.e(TAG, "❌ [DECRYPT_FAILED] My private key not found")
+                return null
+            }
+            Log.d(TAG, "🔑 [KEY_LOAD] My privateKey: ${myPrivateKey.size} bytes")
+
+            // Get all contacts to try decryption
+            // Since we don't know the sender yet, we must try all known contacts
+            val allContacts = contactRepository.contacts.value
+            Log.d(TAG, "👥 [SEALED_SENDER] Trying decryption with ${allContacts.size} known contacts...")
+
+            var decryptedPlaintext: ByteArray? = null
+            var matchedContact: com.void.block.contacts.domain.Contact? = null
+
+            // Try decrypting with each contact's public key
+            for (contact in allContacts) {
+                try {
+                    val plaintext = messageEncryption.decrypt(
+                        encrypted = encryptedMessage,
+                        senderPublicKey = contact.publicKey,
+                        recipientPrivateKey = myPrivateKey
+                    )
+
+                    // If decryption succeeds, we found the sender
+                    decryptedPlaintext = plaintext
+                    matchedContact = contact
+                    Log.d(TAG, "✅ Message decrypted from: ${contact.identity}")
+                    break
+
+                } catch (e: Exception) {
+                    // Decryption failed with this contact, try next
+                }
+            }
+
+            if (decryptedPlaintext == null || matchedContact == null) {
+                Log.e(TAG, "❌ [DECRYPT_FAILED] Could not decrypt with ${allContacts.size} known contacts. Sender may not be in contact list.")
+                return null
+            }
+
+            Log.d(TAG, "✓ [MAC_VERIFY] MAC verification passed")
+            Log.d(TAG, "🔓 [DECRYPT] plaintext: ${decryptedPlaintext.size} bytes")
+
+            // Parse sealed sender header from plaintext
+            val (header, messageContent) = com.void.block.messaging.crypto.SealedSenderHeader.parseFromPlaintext(decryptedPlaintext)
+            val messageText = messageContent.decodeToString()
+
+            com.void.block.messaging.crypto.DecryptedReceivedMessage(
+                senderId = header.senderId,
+                content = messageText,
+                timestamp = header.timestamp
+            )
+
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ [RECEIVER_DECRYPT_FAILED] ${e.message}", e)
+            null
+        }
     }
 
     override suspend fun getOwnIdentity(): com.void.block.messaging.crypto.RecipientIdentity? {

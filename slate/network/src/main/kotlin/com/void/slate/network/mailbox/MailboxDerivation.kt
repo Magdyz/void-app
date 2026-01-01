@@ -44,6 +44,7 @@ class MailboxDerivation(
         require(identitySeed.size == 32) { "Identity seed must be 32 bytes" }
 
         val epoch = calculateEpoch(timestamp)
+        android.util.Log.d("MailboxDerivation", "🕒 [EPOCH_CALC] timestamp=$timestamp ms → epoch=$epoch (duration=${EPOCH_DURATION_MS}ms)")
         return deriveMailboxForEpoch(identitySeed, epoch)
     }
 
@@ -58,15 +59,27 @@ class MailboxDerivation(
     suspend fun deriveMailboxForEpoch(identitySeed: ByteArray, epoch: Long): String {
         require(identitySeed.size == 32) { "Identity seed must be 32 bytes" }
 
+        // DEBUG: Log full derivation inputs
+        val seedHex = identitySeed.joinToString("") { "%02x".format(it) }
+        android.util.Log.d("MailboxDerivation", "🔍 [MAILBOX_DERIVE]")
+        android.util.Log.d("MailboxDerivation", "🔍   Identity Seed (full): $seedHex")
+        android.util.Log.d("MailboxDerivation", "🔍   Epoch: $epoch")
+
         // Derive mailbox using KDF: HMAC-SHA256(seed, "mailbox/epoch/{epoch}")
         val derivationPath = "mailbox/epoch/$epoch"
         val derived = crypto.derive(identitySeed, derivationPath)
+
+        android.util.Log.d("MailboxDerivation", "🔍   Derivation path: $derivationPath")
+        android.util.Log.d("MailboxDerivation", "🔍   Derived KDF output: ${derived.joinToString("") { "%02x".format(it) }}")
 
         // Hash to 16 bytes for mailbox address
         val mailboxBytes = hashTo16Bytes(derived)
 
         // Convert to 32-character hex string
-        return mailboxBytes.toHexString()
+        val mailboxHash = mailboxBytes.toHexString()
+        android.util.Log.d("MailboxDerivation", "🔍   Final Mailbox Hash: $mailboxHash")
+
+        return mailboxHash
     }
 
     /**

@@ -14,6 +14,7 @@ import com.google.crypto.tink.mac.MacConfig
 import com.google.crypto.tink.signature.SignatureConfig
 import com.google.crypto.tink.signature.Ed25519PrivateKeyManager
 import com.google.crypto.tink.subtle.Hkdf
+import com.google.crypto.tink.subtle.X25519
 import com.void.slate.crypto.CryptoProvider
 import com.void.slate.crypto.EncryptedData
 import kotlinx.coroutines.Dispatchers
@@ -138,6 +139,43 @@ class TinkCryptoProvider : CryptoProvider {
         }
     }
 
+    override suspend fun deriveKeyPairFromSeed(seed: ByteArray, path: String): com.void.slate.crypto.KeyPair = withContext(Dispatchers.Default) {
+        try {
+            // Derive a 32-byte key from the seed using HKDF
+            val derivedSeed = derive(seed, path)
+
+            // Choose key type based on path:
+            // - "encryption" → X25519 keys (for ECDH key agreement)
+            // - "identity" → Ed25519 keys (for signatures)
+            val keyPair = when (path) {
+                "encryption" -> {
+                    // Generate X25519 key pair for encryption (ECDH)
+                    // This is deterministic - same seed always produces same keys
+                    val privateKey = derivedSeed  // Use derived seed as X25519 private key
+                    val publicKey = X25519.publicFromPrivate(privateKey)
+                    Pair(publicKey, privateKey)
+                }
+                "identity" -> {
+                    // Generate Ed25519 key pair for signatures
+                    val ed25519KeyPair = com.google.crypto.tink.subtle.Ed25519Sign.KeyPair.newKeyPairFromSeed(derivedSeed)
+                    Pair(ed25519KeyPair.publicKey, ed25519KeyPair.privateKey)
+                }
+                else -> {
+                    // Default to Ed25519 for backward compatibility
+                    val ed25519KeyPair = com.google.crypto.tink.subtle.Ed25519Sign.KeyPair.newKeyPairFromSeed(derivedSeed)
+                    Pair(ed25519KeyPair.publicKey, ed25519KeyPair.privateKey)
+                }
+            }
+
+            com.void.slate.crypto.KeyPair(
+                publicKey = keyPair.first,
+                privateKey = keyPair.second
+            )
+        } catch (e: Exception) {
+            throw RuntimeException("Deterministic key pair derivation failed", e)
+        }
+    }
+
     override suspend fun sign(data: ByteArray, privateKey: ByteArray): ByteArray = withContext(Dispatchers.Default) {
         try {
             // Deserialize the private keyset
@@ -167,6 +205,18 @@ class TinkCryptoProvider : CryptoProvider {
         } catch (e: GeneralSecurityException) {
             // Verification failed
             false
+        }
+    }
+
+    override suspend fun computeSharedSecret(privateKey: ByteArray, publicKey: ByteArray): ByteArray = withContext(Dispatchers.Default) {
+        try {
+            require(privateKey.size == 32) { "Private key must be 32 bytes" }
+            require(publicKey.size == 32) { "Public key must be 32 bytes" }
+
+            // Perform X25519 ECDH
+            X25519.computeSharedSecret(privateKey, publicKey)
+        } catch (e: Exception) {
+            throw RuntimeException("ECDH key agreement failed", e)
         }
     }
 

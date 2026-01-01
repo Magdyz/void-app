@@ -61,7 +61,7 @@ class ContactsBlock : BlockManifest {
 
         // ViewModels
         factory { com.void.block.contacts.ui.viewmodels.ContactsViewModel(get(), get()) }
-        factory { com.void.block.contacts.ui.viewmodels.AddContactViewModel(get(), get()) }
+        factory { com.void.block.contacts.ui.viewmodels.AddContactViewModel(get(), get(), get()) }
     }
 
     @Composable
@@ -106,5 +106,5 @@ class ContactsBlock : BlockManifest {
 val contactsModule = module {
     single { ContactRepository(get(), get()) }
     factory { com.void.block.contacts.ui.viewmodels.ContactsViewModel(get(), get()) }
-    factory { com.void.block.contacts.ui.viewmodels.AddContactViewModel(get(), get()) }
+    factory { com.void.block.contacts.ui.viewmodels.AddContactViewModel(get(), get(), get()) }
 }

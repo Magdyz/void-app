@@ -37,12 +37,13 @@ class ContactRepository(
 
     /**
      * Public key bundle for contact exchange.
-     * Contains both encryption and identity public keys.
+     * Contains both encryption and identity public keys, plus identity seed.
      */
     @Serializable
     private data class PublicKeyBundle(
         val encryptionKey: String,  // Base64 encoded X25519 public key
-        val identityKey: String      // Base64 encoded Ed25519 public key
+        val identityKey: String,     // Base64 encoded Ed25519 public key
+        val identitySeed: String     // Base64 encoded identity seed for mailbox derivation
     )
 
     companion object {
@@ -260,6 +261,7 @@ class ContactRepository(
             displayName = null,
             publicKey = request.publicKey,
             identityKey = request.identityKey,
+            identitySeed = request.identitySeed,
             verified = false,
             blocked = false,
             fingerprint = ""
@@ -329,11 +331,13 @@ class ContactRepository(
      */
     fun createPublicKeyBundle(
         encryptionKey: ByteArray,
-        identityKey: ByteArray
+        identityKey: ByteArray,
+        identitySeed: ByteArray
     ): ByteArray {
         val bundle = PublicKeyBundle(
             encryptionKey = Base64.getEncoder().encodeToString(encryptionKey),
-            identityKey = Base64.getEncoder().encodeToString(identityKey)
+            identityKey = Base64.getEncoder().encodeToString(identityKey),
+            identitySeed = Base64.getEncoder().encodeToString(identitySeed)
         )
         return json.encodeToString(bundle).toByteArray()
     }
@@ -341,12 +345,13 @@ class ContactRepository(
     /**
      * Parse a public key bundle into separate keys.
      */
-    private fun parsePublicKeyBundle(bundleBytes: ByteArray): Pair<ByteArray, ByteArray>? {
+    private fun parsePublicKeyBundle(bundleBytes: ByteArray): Triple<ByteArray, ByteArray, ByteArray>? {
         return try {
             val bundle = json.decodeFromString<PublicKeyBundle>(bundleBytes.decodeToString())
             val encryptionKey = Base64.getDecoder().decode(bundle.encryptionKey)
             val identityKey = Base64.getDecoder().decode(bundle.identityKey)
-            Pair(encryptionKey, identityKey)
+            val identitySeed = Base64.getDecoder().decode(bundle.identitySeed)
+            Triple(encryptionKey, identityKey, identitySeed)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse public key bundle: ${e.message}")
             null
@@ -430,16 +435,17 @@ class ContactRepository(
             val fromIdentity = ThreeWordIdentity.parse(networkRequest.fromIdentity) ?: return null
 
             // Parse the public key bundle
-            val (encryptionKey, identityKey) = parsePublicKeyBundle(networkRequest.publicKeyBundle)
+            val (encryptionKey, identityKey, identitySeed) = parsePublicKeyBundle(networkRequest.publicKeyBundle)
                 ?: return null
 
-            Log.d(TAG, "🔑 [CONTACT_REQUEST_PARSE] Received keys: encryptionKey=${encryptionKey.size} bytes, identityKey=${identityKey.size} bytes")
+            Log.d(TAG, "🔑 [CONTACT_REQUEST_PARSE] Received keys: encryptionKey=${encryptionKey.size} bytes, identityKey=${identityKey.size} bytes, identitySeed=${identitySeed.size} bytes")
 
             ContactRequest(
                 id = networkRequest.requestId,
                 fromIdentity = fromIdentity,
                 publicKey = encryptionKey,
                 identityKey = identityKey,
+                identitySeed = identitySeed,
                 timestamp = networkRequest.timestamp,
                 status = ContactRequest.RequestStatus.PENDING
             )
@@ -470,5 +476,16 @@ class ContactRepository(
         // Clear in-memory lists
         _contacts.value = emptyList()
         _contactRequests.value = emptyList()
+    }
+
+    /**
+     * Find contact by public key.
+     * Useful for matching decrypted messages to contacts.
+     */
+    suspend fun findContactByPublicKeyHex(publicKeyHex: String): Contact? {
+        return _contacts.value.find { contact ->
+            val contactPubKeyHex = contact.publicKey.joinToString("") { "%02x".format(it) }
+            contactPubKeyHex == publicKeyHex
+        }
     }
 }

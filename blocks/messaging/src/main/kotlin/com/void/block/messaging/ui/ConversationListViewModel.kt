@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.void.block.messaging.data.MessageRepository
 import com.void.block.messaging.domain.Conversation
+import com.void.slate.network.sync.SyncScheduler
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,7 +15,8 @@ import kotlinx.coroutines.launch
  * Manages list of conversations and their state.
  */
 class ConversationListViewModel(
-    private val messageRepository: MessageRepository
+    private val messageRepository: MessageRepository,
+    private val syncScheduler: SyncScheduler
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<ConversationListState>(ConversationListState.Loading)
@@ -80,6 +82,23 @@ class ConversationListViewModel(
      */
     fun refresh() {
         loadConversations()
+    }
+
+    /**
+     * Sync messages from server immediately.
+     * Triggers background sync worker to fetch new messages.
+     */
+    fun syncMessages() {
+        viewModelScope.launch {
+            try {
+                // Trigger immediate sync from server
+                syncScheduler.triggerImmediateSync()
+                // The sync will happen in background, and messages will auto-update
+                // through the repository's Flow
+            } catch (e: Exception) {
+                // Sync error - non-critical, periodic sync will retry
+            }
+        }
     }
 }
 

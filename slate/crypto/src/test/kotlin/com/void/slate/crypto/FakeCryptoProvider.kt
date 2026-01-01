@@ -65,6 +65,16 @@ class FakeCryptoProvider : CryptoProvider {
         return KeyPair(publicKey, privateKey)
     }
 
+    override suspend fun deriveKeyPairFromSeed(seed: ByteArray, path: String): KeyPair {
+        // Deterministic derivation for testing
+        val derivedSeed = derive(seed, path)
+        val privateKey = derivedSeed + derivedSeed // 64 bytes
+        return KeyPair(
+            publicKey = derivedSeed,  // 32 bytes
+            privateKey = privateKey.copyOf(64)
+        )
+    }
+
     override suspend fun sign(data: ByteArray, privateKey: ByteArray): ByteArray {
         // Fake signature for testing
         return hash(data + privateKey)
@@ -73,5 +83,15 @@ class FakeCryptoProvider : CryptoProvider {
     override suspend fun verify(data: ByteArray, signature: ByteArray, publicKey: ByteArray): Boolean {
         // Fake verification for testing - not cryptographically sound
         return signature.size == 32
+    }
+
+    override suspend fun computeSharedSecret(privateKey: ByteArray, publicKey: ByteArray): ByteArray {
+        // Fake ECDH for testing - deterministic but not cryptographically sound
+        // XOR private and public keys, then hash for determinism
+        val combined = ByteArray(32)
+        for (i in 0 until 32) {
+            combined[i] = (privateKey[i].toInt() xor publicKey[i].toInt()).toByte()
+        }
+        return hash(combined)
     }
 }

@@ -85,12 +85,13 @@ class MessagingBlock : BlockManifest {
                 messageSender = get(),
                 messageFetcher = get(),
                 mailboxDerivation = get(),
-                encryptionService = get()
+                encryptionService = get(),
+                publicKeyToContactId = getOrNull()  // Optional callback provided by app module
             )
         }
 
         // ViewModels
-        viewModel { ConversationListViewModel(get()) }
+        viewModel { ConversationListViewModel(get(), get()) }
         viewModel { params ->
             ChatViewModel(
                 conversationId = params[0],
@@ -149,12 +150,13 @@ val messagingModule = module {
             messageSender = get(),
             messageFetcher = get(),
             mailboxDerivation = get(),
-            encryptionService = get()
+            encryptionService = get(),
+            publicKeyToContactId = getOrNull()  // Optional callback provided by app module
         )
     }
 
     // ViewModels
-    viewModel { ConversationListViewModel(get()) }
+    viewModel { ConversationListViewModel(get(), get()) }
     viewModel { params ->
         ChatViewModel(
             conversationId = params[0],

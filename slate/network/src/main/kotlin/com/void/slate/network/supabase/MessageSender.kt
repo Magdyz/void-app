@@ -68,6 +68,13 @@ class MessageSender(
             // Epoch for database is Unix timestamp in seconds (not mailbox rotation epoch)
             val epoch = timestamp / 1000  // Convert milliseconds to seconds
 
+            // DEBUG: Log full mailbox hash for diagnosis
+            println("🔍 [SENDER_MAILBOX] Sending to mailbox:")
+            println("🔍   Recipient seed (first 16 bytes): ${recipientSeed.take(16).joinToString("") { "%02x".format(it) }}")
+            println("🔍   Mailbox:   $mailboxHash")
+            println("🔍   Timestamp: $timestamp")
+            println("🔍   Epoch:     $epoch")
+
             Log.d(TAG, "   📬 Recipient mailbox: ${mailboxHash.take(8)}... (epoch $epoch)")
 
             // Encode payload as base64
@@ -85,6 +92,14 @@ class MessageSender(
                 epoch = epoch,
                 expiresAt = expiresAt
             )
+
+            // DEBUG: Log insert record details
+            Log.d(TAG, "🔍 [INSERT_DEBUG] Message insert record:")
+            Log.d(TAG, "🔍   ID: $messageId")
+            Log.d(TAG, "🔍   Mailbox (full): $mailboxHash")
+            Log.d(TAG, "🔍   Epoch: $epoch")
+            Log.d(TAG, "🔍   Ciphertext size: ${ciphertextBase64.length} chars")
+            Log.d(TAG, "🔍   Expires at: $expiresAt")
 
             // Insert into Supabase message_queue table
             supabase

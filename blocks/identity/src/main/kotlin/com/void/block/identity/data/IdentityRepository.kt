@@ -45,6 +45,7 @@ class IdentityRepository(
     /**
      * Ensure encryption keys exist for the current identity.
      * If they don't exist, generate them.
+     * If they exist, verify they match the deterministic derivation.
      */
     private suspend fun ensureKeysExist() {
         val hasEncryptionKey = secureStorage.get(KEY_ENCRYPTION_PUBLIC) != null
@@ -54,7 +55,33 @@ class IdentityRepository(
             Log.w(TAG, "⚠️  [KEY_MISSING] Keys not found for existing identity - generating now")
             generateAndStoreKeyPairs()
         } else {
-            Log.d(TAG, "✓ [KEY_CHECK] Keys exist for identity")
+            // Verify keys match deterministic derivation
+            verifyKeyDerivation()
+        }
+    }
+
+    /**
+     * Verify that stored keys match the deterministic derivation from identity seed.
+     * If they don't match, regenerate them.
+     * This fixes issues where keys were generated before deterministic derivation was implemented.
+     */
+    private suspend fun verifyKeyDerivation() {
+        val identity = _identity.value ?: return
+
+        // Get stored public key
+        val storedPublicKey = secureStorage.get(KEY_ENCRYPTION_PUBLIC) ?: return
+
+        // Derive what the public key SHOULD be
+        val expectedKeyPair = crypto.deriveKeyPairFromSeed(identity.seed, "encryption")
+
+        // Compare
+        if (!storedPublicKey.contentEquals(expectedKeyPair.publicKey)) {
+            Log.w(TAG, "⚠️  Key mismatch detected. Regenerating keys from seed...")
+
+            // Regenerate keys using deterministic method
+            generateAndStoreKeyPairs()
+
+            Log.i(TAG, "✓ Keys regenerated successfully")
         }
     }
     
@@ -91,31 +118,36 @@ class IdentityRepository(
      * - X25519 key pair for encryption (ECDH)
      * - Ed25519 key pair for signatures (identity verification)
      *
-     * Keys are stored in Android Keystore (hardware-backed).
+     * IMPORTANT: For Phase 2, keys are derived deterministically from the identity seed.
+     * This allows manual contact exchange (just share the 3 words).
+     * In Phase 3, this will be replaced with random keys + proper key exchange.
      */
     private suspend fun generateAndStoreKeyPairs() {
-        // Generate encryption key pair (for ECDH)
-        // For Phase 2, we'll use the crypto provider's key pair generation
-        // In Phase 3, this will be replaced with proper X25519
-        val encryptionKeyPair = crypto.generateKeyPair()
+        // Get identity seed
+        val identity = _identity.value ?: getIdentity()
+        require(identity != null) { "Identity must exist before generating keys" }
 
-        Log.d(TAG, "🔑 [KEY_GEN] Generated encryption key pair: publicKey=${encryptionKeyPair.publicKey.size} bytes, privateKey=${encryptionKeyPair.privateKey.size} bytes")
+        // Derive encryption key pair deterministically from identity seed
+        // Same identity seed always produces the same keys
+        val encryptionKeyPair = crypto.deriveKeyPairFromSeed(identity.seed, "encryption")
+
+        Log.d(TAG, "🔑 [KEY_DERIVE] Derived encryption key pair from seed: publicKey=${encryptionKeyPair.publicKey.size} bytes, privateKey=${encryptionKeyPair.privateKey.size} bytes")
 
         // Store encryption keys in secure storage
         // Private keys should go to Android Keystore in production
         secureStorage.put(KEY_ENCRYPTION_PUBLIC, encryptionKeyPair.publicKey)
         secureStorage.put(KEY_ENCRYPTION_PRIVATE, encryptionKeyPair.privateKey)
 
-        // Generate identity/signature key pair
-        val identityKeyPair = crypto.generateKeyPair()
+        // Derive identity/signature key pair
+        val identityKeyPair = crypto.deriveKeyPairFromSeed(identity.seed, "identity")
 
-        Log.d(TAG, "🔑 [KEY_GEN] Generated identity key pair: publicKey=${identityKeyPair.publicKey.size} bytes, privateKey=${identityKeyPair.privateKey.size} bytes")
+        Log.d(TAG, "🔑 [KEY_DERIVE] Derived identity key pair from seed: publicKey=${identityKeyPair.publicKey.size} bytes, privateKey=${identityKeyPair.privateKey.size} bytes")
 
         // Store identity keys
         secureStorage.put(KEY_IDENTITY_PUBLIC, identityKeyPair.publicKey)
         secureStorage.put(KEY_IDENTITY_PRIVATE, identityKeyPair.privateKey)
 
-        Log.d(TAG, "✓ [KEY_STORE] All keys stored securely")
+        Log.d(TAG, "✓ [KEY_STORE] All keys stored securely (deterministic derivation)")
     }
 
     /**

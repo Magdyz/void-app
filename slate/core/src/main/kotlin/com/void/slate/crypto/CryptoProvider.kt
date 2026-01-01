@@ -35,7 +35,17 @@ interface CryptoProvider {
      * Generate a key pair for asymmetric encryption.
      */
     suspend fun generateKeyPair(): KeyPair
-    
+
+    /**
+     * Derive a key pair deterministically from a seed.
+     * Same seed + path always produces the same keys.
+     * Used for manual contact exchange in Phase 2.
+     *
+     * @param seed The cryptographic seed to derive from
+     * @param path Domain separation path (e.g., "encryption", "identity")
+     */
+    suspend fun deriveKeyPairFromSeed(seed: ByteArray, path: String): KeyPair
+
     /**
      * Sign data with a private key.
      */
@@ -45,6 +55,19 @@ interface CryptoProvider {
      * Verify a signature with a public key.
      */
     suspend fun verify(data: ByteArray, signature: ByteArray, publicKey: ByteArray): Boolean
+
+    /**
+     * Perform ECDH key agreement to compute a shared secret.
+     * For X25519: sharedSecret = scalar_mult(privateKey, publicKey)
+     *
+     * CRITICAL: This must be commutative:
+     * - computeSharedSecret(alicePrivate, bobPublic) == computeSharedSecret(bobPrivate, alicePublic)
+     *
+     * @param privateKey 32-byte private key
+     * @param publicKey 32-byte public key
+     * @return 32-byte shared secret
+     */
+    suspend fun computeSharedSecret(privateKey: ByteArray, publicKey: ByteArray): ByteArray
 }
 
 /**

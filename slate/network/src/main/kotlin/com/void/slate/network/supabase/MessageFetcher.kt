@@ -83,6 +83,14 @@ class MessageFetcher(
         require(mailboxHash.length == 64) { "Mailbox hash must be 64 characters (32 bytes in hex)" }
 
         return try {
+            // DEBUG: Log query parameters
+            val epochMin = epoch - EPOCH_WINDOW
+            val epochMax = epoch + EPOCH_WINDOW
+            Log.d(TAG, "🔍 [QUERY_DEBUG] Fetching from mailbox ${mailboxHash.take(8)}...")
+            Log.d(TAG, "🔍   Mailbox (full): $mailboxHash")
+            Log.d(TAG, "🔍   Current epoch: $epoch")
+            Log.d(TAG, "🔍   Epoch range: $epochMin to $epochMax (window: ±$EPOCH_WINDOW sec)")
+
             // Query Supabase message_queue table
             // RLS policy ensures we can only see messages for mailboxes we know
             val response = supabase
@@ -90,16 +98,25 @@ class MessageFetcher(
                 .select(columns = Columns.ALL) {
                     filter {
                         eq("mailbox_hash", mailboxHash)
-                        gte("epoch", epoch - EPOCH_WINDOW) // Tolerate clock skew
-                        lte("epoch", epoch + EPOCH_WINDOW)
+                        gte("epoch", epochMin) // Tolerate clock skew
+                        lte("epoch", epochMax)
                     }
                 }
                 .decodeList<MessageRecord>()
 
+            Log.d(TAG, "🔍   Query result: ${response.size} messages found")
+
+            // DEBUG: Log each message found
+            response.forEachIndexed { index, record ->
+                Log.d(TAG, "🔍   Message $index: id=${record.id.take(8)}..., epoch=${record.epoch}, created=${record.createdAt}")
+            }
+
             response
 
         } catch (e: Exception) {
-            Log.e(TAG, "   ❌ Error fetching from mailbox ${mailboxHash.take(8)}...: ${e.message}")
+            Log.e(TAG, "   ❌ Error fetching from mailbox ${mailboxHash.take(8)}...: ${e.message}", e)
+            Log.e(TAG, "   ❌ Error type: ${e.javaClass.simpleName}")
+            Log.e(TAG, "   ❌ Stack trace:", e)
             emptyList()
         }
     }

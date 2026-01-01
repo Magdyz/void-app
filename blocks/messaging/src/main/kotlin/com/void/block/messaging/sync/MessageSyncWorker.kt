@@ -41,9 +41,12 @@ class MessageSyncWorker(
 
     override suspend fun doWork(): Result {
         Log.d(TAG, "⚡ MessageSyncWorker started")
+        Log.d(TAG, "   Run attempt: ${runAttemptCount + 1}")
+        Log.d(TAG, "   Tags: ${tags.joinToString()}")
 
         return try {
             // Perform one-time sync
+            Log.d(TAG, "   Calling syncEngine.performOneTimeSync()...")
             val result = syncEngine.performOneTimeSync()
 
             result.fold(
@@ -53,6 +56,7 @@ class MessageSyncWorker(
                 },
                 onFailure = { error ->
                     Log.e(TAG, "❌ Sync failed: ${error.message}", error)
+                    Log.e(TAG, "   Error type: ${error.javaClass.simpleName}")
 
                     // Retry on network errors (WorkManager will automatically retry with backoff)
                     if (runAttemptCount < 3) {
@@ -67,10 +71,14 @@ class MessageSyncWorker(
 
         } catch (e: Exception) {
             Log.e(TAG, "❌ Worker exception: ${e.message}", e)
+            Log.e(TAG, "   Exception type: ${e.javaClass.simpleName}")
+            e.printStackTrace()
 
             if (runAttemptCount < 3) {
+                Log.d(TAG, "🔄 Will retry due to exception")
                 Result.retry()
             } else {
+                Log.e(TAG, "❌ Max retries reached after exception, giving up")
                 Result.failure()
             }
         }

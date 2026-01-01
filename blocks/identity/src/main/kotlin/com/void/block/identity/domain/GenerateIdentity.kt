@@ -14,36 +14,50 @@ class GenerateIdentity(
     
     /**
      * Generate a new identity.
-     * 
+     *
      * @param regenerate If true, generates a new identity even if one exists
      * @return The generated identity
      */
     suspend operator fun invoke(regenerate: Boolean = false): Identity {
+        android.util.Log.e("VOID_IDENTITY", "🚀 [VERSION_CHECK] Using DETERMINISTIC seed derivation (NEW CODE)")
+
         // Check for existing identity
         if (!regenerate) {
             repository.getIdentity()?.let { return it }
         }
-        
-        // Generate new cryptographic seed
-        val seed = crypto.generateSeed(32)
-        
-        // Derive 3 word indices from seed
-        val wordIndices = deriveWordIndices(seed)
-        
-        // Get words from dictionary
-        val words = wordIndices.map { dictionary.getWord(it) }
-        
+
+        // Generate random words by picking random indices
+        val randomIndices = List(3) { (0 until WordDictionary.WORD_COUNT).random() }
+        val words = randomIndices.map { dictionary.getWord(it) }
+
+        android.util.Log.e("VOID_IDENTITY", "🔑 [BEFORE_DERIVATION] About to derive seed from words: ${words.joinToString(".")}")
+
+        // Derive seed FROM words (bidirectional - same words always give same seed)
+        val seed = deriveSeedFromWords(words)
+
         // Create identity
         val identity = Identity(
             words = words,
             seed = seed,
             createdAt = System.currentTimeMillis()
         )
-        
+
         // Save identity
         repository.saveIdentity(identity)
-        
+
         return identity
+    }
+
+    /**
+     * Derive a cryptographic seed from three words.
+     * This is bidirectional - the same words always produce the same seed.
+     * This allows manual contact exchange by just sharing the three words.
+     */
+    private fun deriveSeedFromWords(words: List<String>): ByteArray {
+        val combined = words.joinToString(".")
+        // Use SHA-256 for deterministic derivation
+        return java.security.MessageDigest.getInstance("SHA-256")
+            .digest(combined.toByteArray())
     }
     
     private suspend fun deriveWordIndices(seed: ByteArray): List<Int> {

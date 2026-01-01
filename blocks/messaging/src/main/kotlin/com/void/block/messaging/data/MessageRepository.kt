@@ -29,7 +29,8 @@ class MessageRepository(
     private val messageSender: MessageSender? = null,  // Optional for now, null = offline mode
     private val messageFetcher: MessageFetcher? = null,  // Optional for now, null = offline mode
     private val mailboxDerivation: MailboxDerivation? = null,  // Optional for fetching
-    private val encryptionService: MessageEncryptionService? = null  // Optional - null = no encryption
+    private val encryptionService: MessageEncryptionService? = null,  // Optional - null = no encryption
+    private val publicKeyToContactId: (suspend (String) -> String?)? = null  // Optional - converts public key hex to contact UUID
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -258,9 +259,11 @@ class MessageRepository(
 
         // Update in-memory cache
         val flow = _messagesCache[updatedMessage.conversationId]
-        flow?.value = flow?.value?.map {
-            if (it.id == messageId) updatedMessage else it
-        } ?: emptyList()
+        if (flow != null) {
+            flow.value = flow.value.map {
+                if (it.id == messageId) updatedMessage else it
+            }
+        }
     }
 
     /**
@@ -495,15 +498,25 @@ class MessageRepository(
         var newMessageCount = 0
         val timestamp = since ?: System.currentTimeMillis()
 
-        // Epoch for database queries is Unix timestamp in seconds (not mailbox rotation epoch)
-        val epoch = timestamp / 1000
+        // ✅ FIX: Epoch for database queries is Unix timestamp in seconds
+        // This is different from mailbox rotation epoch!
+        val dbEpoch = timestamp / 1000
 
-        // Derive mailbox hashes (current epoch and previous for clock skew)
-        val currentMailbox = mailbox.deriveMailbox(userIdentity.seed, timestamp)
-        val previousMailbox = mailbox.deriveMailbox(userIdentity.seed, timestamp - 25 * 60 * 60 * 1000)
-        val mailboxHashes = listOf(currentMailbox, previousMailbox).distinct()
+        // ✅ FIX: Use getActiveMailboxes() which properly handles rotation windows
+        val activeMailboxes = mailbox.getActiveMailboxes(userIdentity.seed, timestamp)
+        val mailboxHashes = activeMailboxes.map { it.hash }
 
-        fetcher.fetchMessages(mailboxHashes, epoch)
+        // DEBUG: Log full mailbox hashes for diagnosis
+        Log.d(TAG, "🔍 [RECEIVER_MAILBOX] Checking ${activeMailboxes.size} active mailboxes:")
+        Log.d(TAG, "🔍   Own seed (first 16 bytes): ${userIdentity.seed.take(16).joinToString("") { "%02x".format(it) }}")
+        activeMailboxes.forEachIndexed { index, mailbox ->
+            val marker = if (mailbox.isPrimary) "PRIMARY" else "SECONDARY"
+            Log.d(TAG, "🔍   [$marker] Mailbox $index: ${mailbox.hash} (epoch=${mailbox.epoch})")
+        }
+        Log.d(TAG, "🔍   Timestamp: $timestamp ms")
+        Log.d(TAG, "🔍   DB Query Epoch: $dbEpoch sec")
+
+        fetcher.fetchMessages(mailboxHashes, dbEpoch)
             .onSuccess { messageRecords ->
                 Log.d(TAG, "📥 [SYNC] Received ${messageRecords.size} messages from Supabase")
 
@@ -534,45 +547,71 @@ class MessageRepository(
 
     /**
      * Parse a Supabase message record into a Message domain object.
-     * Decrypts the message content.
+     * Decrypts the message content and extracts sender ID from sealed sender header.
      */
     private suspend fun parseSupabaseMessage(record: MessageRecord): Message? {
         return try {
             // Decode base64 ciphertext
             val encryptedPayload = Base64.decode(record.ciphertext, Base64.NO_WRAP)
 
-            // TODO: Extract sender ID from message envelope
-            // For now, use unknown sender
-            val senderId = "unknown"
-
-            val plaintext = if (encryptionService != null) {
-                val decrypted = encryptionService.decryptMessage(encryptedPayload, senderId)
-                if (decrypted == null) {
-                    Log.e(TAG, "❌ [DECRYPT_FAILED] Failed to decrypt message ${record.id}")
-                    return null
-                }
-                decrypted
-            } else {
-                // Fallback: no encryption (for testing only)
+            if (encryptionService == null) {
                 Log.w(TAG, "⚠️  [NO_ENCRYPTION] Receiving unencrypted message (testing mode)")
-                encryptedPayload.decodeToString()
+                // Fallback: no encryption (for testing only)
+                val plaintext = encryptedPayload.decodeToString()
+                val message = Message(
+                    id = record.id,
+                    conversationId = "unknown",
+                    senderId = "unknown",
+                    recipientId = "me",
+                    content = MessageContent.Text(plaintext),
+                    direction = MessageDirection.INCOMING,
+                    timestamp = System.currentTimeMillis(),
+                    status = MessageStatus.DELIVERED,
+                    deliveredAt = System.currentTimeMillis(),
+                    encryptedPayload = encryptedPayload
+                )
+                return message
             }
 
-            // Create message
+            // ✅ NEW: Use sealed sender decryption (no senderId needed upfront)
+            val decrypted = encryptionService.decryptReceivedMessage(encryptedPayload)
+            if (decrypted == null) {
+                Log.e(TAG, "❌ [DECRYPT_FAILED] Failed to decrypt message ${record.id}")
+                return null
+            }
+
+            // ✅ Extract sender ID from sealed sender header (this is the public key hex)
+            val senderPublicKeyHex = decrypted.senderId
+            val plaintext = decrypted.content
+            val messageTimestamp = decrypted.timestamp
+
+            Log.d(TAG, "✅ [SEALED_SENDER_PARSED] senderPublicKeyHex=${senderPublicKeyHex.take(16)}..., timestamp=$messageTimestamp")
+
+            // ✅ Look up contact by public key hex to get their UUID
+            val contactId = publicKeyToContactId?.invoke(senderPublicKeyHex)
+            if (contactId == null) {
+                Log.e(TAG, "❌ [CONTACT_NOT_FOUND] Cannot find contact with public key: ${senderPublicKeyHex.take(16)}...")
+                Log.e(TAG, "⚠️  [MESSAGE_IGNORED] Message from unknown sender will be ignored")
+                return null
+            }
+
+            Log.d(TAG, "✓ [CONTACT_MATCHED] publicKey=${senderPublicKeyHex.take(16)}... -> contactId=$contactId")
+
+            // Create message with contact UUID (not public key hex!)
             val message = Message(
                 id = record.id,
-                conversationId = senderId,
-                senderId = senderId,
+                conversationId = contactId,  // ✅ Use contact UUID for conversation
+                senderId = contactId,        // ✅ Use contact UUID for sender
                 recipientId = "me",
                 content = MessageContent.Text(plaintext),
                 direction = MessageDirection.INCOMING,
-                timestamp = System.currentTimeMillis(), // TODO: Extract from message envelope
+                timestamp = messageTimestamp,  // ✅ Use timestamp from header
                 status = MessageStatus.DELIVERED,
                 deliveredAt = System.currentTimeMillis(),
                 encryptedPayload = encryptedPayload
             )
 
-            Log.d(TAG, "✓ [MESSAGE_RECEIVED] messageId=${message.id}, content=\"$plaintext\"")
+            Log.d(TAG, "✓ [MESSAGE_RECEIVED] messageId=${message.id}, from=$contactId, content=\"$plaintext\"")
             message
         } catch (e: Exception) {
             Log.e(TAG, "❌ [PARSE_FAILED] ${e.message}", e)

@@ -125,20 +125,22 @@ class MessageEncryption(
 
     /**
      * Perform X25519 ECDH key agreement.
-     * For Phase 2, using simplified approach.
-     * Will be replaced with proper Curve25519 in Phase 3.
+     * Uses CryptoProvider's implementation for proper elliptic curve Diffie-Hellman.
+     *
+     * CRITICAL: Both sender and receiver must compute the same shared secret:
+     * - Sender: ECDH(senderPrivate, recipientPublic)
+     * - Receiver: ECDH(recipientPrivate, senderPublic)
+     * These produce the same result due to ECDH properties.
      */
     private suspend fun performKeyAgreement(
         privateKey: ByteArray,
         publicKey: ByteArray
     ): ByteArray {
-        // Simplified: XOR and hash for now
-        // TODO: Replace with proper X25519 in Phase 3
-        val combined = ByteArray(privateKey.size)
-        for (i in combined.indices) {
-            combined[i] = (privateKey[i].toInt() xor publicKey[i % publicKey.size].toInt()).toByte()
-        }
-        return crypto.hash(combined)
+        // Use proper X25519 ECDH via CryptoProvider
+        val sharedSecret = crypto.computeSharedSecret(privateKey, publicKey)
+
+        // Hash the shared secret for additional security (KDF)
+        return crypto.hash(sharedSecret)
     }
 
     /**
@@ -179,6 +181,61 @@ class MessageEncryption(
 
     companion object {
         private const val PROTOCOL_VERSION = 1
+    }
+}
+
+/**
+ * Sealed sender header prepended to plaintext before encryption.
+ * This allows the receiver to identify the sender after decryption.
+ *
+ * Format: senderId (32 bytes) + separator (1 byte '|') + message content
+ */
+@Serializable
+data class SealedSenderHeader(
+    /**
+     * Sender's 32-byte identity seed (hex encoded as 64 chars).
+     * This identifies who sent the message after decryption.
+     */
+    val senderId: String,
+
+    /**
+     * Timestamp when message was sent (milliseconds since epoch).
+     */
+    val timestamp: Long
+) {
+    companion object {
+        /**
+         * Serialize header and prepend to message content.
+         *
+         * Format: JSON_HEADER + "|" + MESSAGE_CONTENT
+         */
+        fun prependToMessage(senderId: String, timestamp: Long, messageContent: ByteArray): ByteArray {
+            val header = SealedSenderHeader(senderId, timestamp)
+            val json = Json.encodeToString(serializer(), header)
+            val headerBytes = json.toByteArray(Charsets.UTF_8)
+            val separator = "|".toByteArray(Charsets.UTF_8)
+            return headerBytes + separator + messageContent
+        }
+
+        /**
+         * Parse header from decrypted plaintext and extract message content.
+         *
+         * Returns: Pair(header, messageContent)
+         */
+        fun parseFromPlaintext(plaintext: ByteArray): Pair<SealedSenderHeader, ByteArray> {
+            val plaintextString = plaintext.decodeToString()
+            val separatorIndex = plaintextString.indexOf('|')
+
+            if (separatorIndex == -1) {
+                throw MessageDecryptionException("Invalid sealed sender format: missing separator")
+            }
+
+            val headerJson = plaintextString.substring(0, separatorIndex)
+            val messageContent = plaintextString.substring(separatorIndex + 1).toByteArray(Charsets.UTF_8)
+
+            val header = Json.decodeFromString(serializer(), headerJson)
+            return Pair(header, messageContent)
+        }
     }
 }
 

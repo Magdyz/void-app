@@ -15,6 +15,7 @@ data class Contact(
     val displayName: String?,                 // Optional nickname
     val publicKey: ByteArray,                 // Their X25519 public key for encryption
     val identityKey: ByteArray,               // Their Ed25519 identity key
+    val identitySeed: ByteArray,              // Their identity seed (for mailbox derivation)
     val verified: Boolean = false,            // Have we verified their key in person?
     val blocked: Boolean = false,             // Is this contact blocked?
     val addedAt: Long = System.currentTimeMillis(),
@@ -51,6 +52,7 @@ data class Contact(
         if (identity != other.identity) return false
         if (!publicKey.contentEquals(other.publicKey)) return false
         if (!identityKey.contentEquals(other.identityKey)) return false
+        if (!identitySeed.contentEquals(other.identitySeed)) return false
 
         return true
     }
@@ -60,6 +62,7 @@ data class Contact(
         result = 31 * result + identity.hashCode()
         result = 31 * result + publicKey.contentHashCode()
         result = 31 * result + identityKey.contentHashCode()
+        result = 31 * result + identitySeed.contentHashCode()
         return result
     }
 }
@@ -110,6 +113,7 @@ data class ContactRequest(
     val fromIdentity: ThreeWordIdentity,
     val publicKey: ByteArray,
     val identityKey: ByteArray,
+    val identitySeed: ByteArray,              // Identity seed for mailbox derivation
     val message: String = "",                 // Optional introduction message
     val timestamp: Long = System.currentTimeMillis(),
     val status: RequestStatus = RequestStatus.PENDING

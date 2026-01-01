@@ -29,6 +29,21 @@ interface MessageEncryptionService {
     suspend fun decryptMessage(encryptedPayload: ByteArray, senderId: String): String?
 
     /**
+     * Decrypt received message WITHOUT knowing sender ID upfront (Sealed Sender).
+     *
+     * This method:
+     * 1. Decrypts the message using recipient's private key
+     * 2. Parses the sealed sender header to extract senderId
+     * 3. Returns both senderId and message content
+     *
+     * Use this for receiving messages where sender is unknown until after decryption.
+     *
+     * @param encryptedPayload Base64-encoded encrypted payload
+     * @return DecryptedReceivedMessage containing senderId, content, and timestamp, or null if decryption fails
+     */
+    suspend fun decryptReceivedMessage(encryptedPayload: ByteArray): DecryptedReceivedMessage?
+
+    /**
      * Get recipient's identity with seed for mailbox derivation.
      *
      * @param recipientId The recipient's contact ID
@@ -44,6 +59,18 @@ interface MessageEncryptionService {
      */
     suspend fun getOwnIdentity(): RecipientIdentity?
 }
+
+/**
+ * Result of decrypting a received message with sealed sender header.
+ */
+data class DecryptedReceivedMessage(
+    /** Sender ID extracted from sealed sender header (hex-encoded seed) */
+    val senderId: String,
+    /** Decrypted message content */
+    val content: String,
+    /** Timestamp from sealed sender header */
+    val timestamp: Long
+)
 
 /**
  * Recipient identity for message sending and mailbox derivation.

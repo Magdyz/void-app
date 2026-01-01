@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -52,6 +53,15 @@ fun ConversationListScreen(
                     }
                 },
                 actions = {
+                    // Refresh button - triggers immediate sync
+                    IconButton(onClick = { viewModel.syncMessages() }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Sync messages"
+                        )
+                    }
+
+                    // New conversation button
                     IconButton(onClick = onNewConversation) {
                         Icon(
                             imageVector = Icons.Default.Add,

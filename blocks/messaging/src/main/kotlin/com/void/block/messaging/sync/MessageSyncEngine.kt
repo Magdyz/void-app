@@ -53,73 +53,28 @@ class MessageSyncEngine(
 
     /**
      * Perform one-time sync - used by WorkManager when FCM tickle is received.
-     * Connects, fetches pending messages, decrypts, and disconnects.
+     * Fetches pending messages from Supabase, decrypts, and stores locally.
      */
     suspend fun performOneTimeSync(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "⚡ One-time sync triggered")
 
-            // Connect to server
-            networkClient.connect()
+            // Sync messages from Supabase via MessageRepository
+            // This uses the correct MessageFetcher → Supabase architecture
+            val newMessageCount = messageRepository.syncMessages()
 
-            // Fetch any pending messages
-            val result = networkClient.receiveMessages()
+            Log.d(TAG, "📥 Synced $newMessageCount new messages from Supabase")
 
-            result.fold(
-                onSuccess = { messages ->
-                    Log.d(TAG, "📥 Received ${messages.size} messages")
+            // Post generic notification if messages were received
+            if (newMessageCount > 0) {
+                postMessageNotification("unknown") // Generic for privacy
+            }
 
-                    messages.forEach { receivedMessage ->
-                        try {
-                            // Decrypt message locally
-                            val decryptedContent = encryptionService.decryptMessage(
-                                encryptedPayload = receivedMessage.encryptedPayload,
-                                senderId = receivedMessage.senderIdentity
-                            )
-
-                            if (decryptedContent != null) {
-                                // Create Message object
-                                val message = com.void.block.messaging.domain.Message(
-                                    id = receivedMessage.messageId,
-                                    conversationId = receivedMessage.senderIdentity,
-                                    senderId = receivedMessage.senderIdentity,
-                                    recipientId = "me",
-                                    content = com.void.block.messaging.domain.MessageContent.Text(decryptedContent),
-                                    direction = com.void.block.messaging.domain.MessageDirection.INCOMING,
-                                    timestamp = receivedMessage.serverTimestamp,
-                                    status = com.void.block.messaging.domain.MessageStatus.DELIVERED,
-                                    deliveredAt = receivedMessage.serverTimestamp,
-                                    encryptedPayload = receivedMessage.encryptedPayload
-                                )
-
-                                // Store message in local database
-                                messageRepository.receiveMessage(message)
-
-                                // Post notification (generic for privacy)
-                                postMessageNotification(receivedMessage.senderIdentity)
-                            }
-
-                        } catch (e: Exception) {
-                            Log.e(TAG, "❌ Failed to process message: ${e.message}", e)
-                        }
-                    }
-
-                    Log.d(TAG, "✅ One-time sync completed successfully")
-                },
-                onFailure = { error ->
-                    Log.e(TAG, "❌ Sync failed: ${error.message}", error)
-                    return@withContext Result.failure(error)
-                }
-            )
-
-            // Disconnect
-            networkClient.disconnect()
-
+            Log.d(TAG, "✅ One-time sync completed successfully")
             Result.success(Unit)
 
         } catch (e: Exception) {
             Log.e(TAG, "❌ One-time sync exception: ${e.message}", e)
-            networkClient.disconnect()
             Result.failure(e)
         }
     }

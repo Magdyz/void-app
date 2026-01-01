@@ -8,8 +8,10 @@ import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
+import androidx.work.PeriodicWorkRequest
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -63,7 +65,12 @@ class SyncScheduler(
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
-        val syncRequest = PeriodicWorkRequestBuilder<MessageSyncWorker>(
+        // Use class name string to avoid module dependency issues
+        @Suppress("UNCHECKED_CAST")
+        val workerClass = Class.forName("com.void.block.messaging.sync.MessageSyncWorker") as Class<out CoroutineWorker>
+
+        val syncRequest = PeriodicWorkRequest.Builder(
+            workerClass,
             intervalHours, TimeUnit.HOURS,
             15, TimeUnit.MINUTES // Flex period: can run 15 min early
         )
@@ -102,7 +109,11 @@ class SyncScheduler(
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
-        val syncRequest = OneTimeWorkRequestBuilder<MessageSyncWorker>()
+        // Use class name string to avoid module dependency issues
+        @Suppress("UNCHECKED_CAST")
+        val workerClass = Class.forName("com.void.block.messaging.sync.MessageSyncWorker") as Class<out CoroutineWorker>
+
+        val syncRequest = OneTimeWorkRequest.Builder(workerClass)
             .setConstraints(constraints)
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .addTag(TAG_IMMEDIATE_SYNC)
@@ -206,21 +217,7 @@ class SyncScheduler(
     }
 }
 
-/**
- * WorkManager worker for message synchronization.
- * Already implemented in blocks/messaging/sync/MessageSyncWorker.kt
- *
- * This is a reference placeholder - the actual implementation exists.
- */
-private class MessageSyncWorker(
-    context: Context,
-    params: WorkerParameters
-) : CoroutineWorker(context, params) {
-    override suspend fun doWork(): Result {
-        // Implementation in blocks/messaging/sync/MessageSyncWorker.kt
-        return Result.success()
-    }
-}
+// MessageSyncWorker implementation is in blocks/messaging/sync/MessageSyncWorker.kt
 
 /**
  * WorkManager worker for mailbox rotation checks.

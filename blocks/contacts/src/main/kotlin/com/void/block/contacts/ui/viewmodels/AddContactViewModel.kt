@@ -6,6 +6,7 @@ import com.void.block.contacts.data.ContactRepository
 import com.void.block.contacts.domain.Contact
 import com.void.block.contacts.domain.ThreeWordIdentity
 import com.void.block.contacts.events.ContactEvent
+import com.void.slate.crypto.CryptoProvider
 import com.void.slate.event.EventBus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,7 +19,8 @@ import java.util.UUID
  */
 class AddContactViewModel(
     private val repository: ContactRepository,
-    private val eventBus: EventBus
+    private val eventBus: EventBus,
+    private val crypto: CryptoProvider
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<AddContactUiState>(AddContactUiState.Input)
@@ -66,15 +68,21 @@ class AddContactViewModel(
                 return@launch
             }
 
+            // Generate deterministic seed from identity
+            val identitySeed = generateDeterministicSeed(identity)
+
+            // Derive encryption keys from seed (deterministic)
+            // This allows manual contact exchange by just sharing the three words
+            val (publicKey, identityKey) = deriveKeysFromSeed(identitySeed)
+
             // Create new contact
-            // TODO: In real implementation, we'd need to exchange keys first
-            // For now, create placeholder contact
             val contact = Contact(
                 id = UUID.randomUUID().toString(),
                 identity = identity,
                 displayName = nickname,
-                publicKey = ByteArray(32),  // TODO: Exchange via QR or network
-                identityKey = ByteArray(32),  // TODO: Exchange via QR or network
+                publicKey = publicKey,      // ✓ Derived from seed!
+                identityKey = identityKey,  // ✓ Derived from seed!
+                identitySeed = identitySeed,
                 verified = false,
                 blocked = false,
                 fingerprint = ""
@@ -99,6 +107,44 @@ class AddContactViewModel(
         _uiState.value = AddContactUiState.Input
         _identityInput.value = ""
         _nicknameInput.value = ""
+    }
+
+    /**
+     * Generate deterministic seed from three-word identity.
+     * Uses the same derivation as identity generation, so the same words
+     * always produce the same seed. This enables manual contact exchange.
+     */
+    private fun generateDeterministicSeed(identity: ThreeWordIdentity): ByteArray {
+        // Match the derivation in GenerateIdentity.deriveSeedFromWords()
+        val combined = "${identity.word1}.${identity.word2}.${identity.word3}"
+
+        // Use HKDF-like derivation for consistency with crypto.derive()
+        // This matches: crypto.derive(ByteArray(32), combined)
+        return java.security.MessageDigest.getInstance("SHA-256")
+            .digest(combined.toByteArray())
+    }
+
+    /**
+     * Derive encryption keys from identity seed (deterministic).
+     *
+     * IMPORTANT: For Phase 2, we derive keys deterministically from the seed.
+     * This allows manual contact exchange (just share the 3 words).
+     * In Phase 3, this will be replaced with proper key exchange via QR/network.
+     *
+     * @return Pair of (publicEncryptionKey, publicIdentityKey)
+     */
+    private suspend fun deriveKeysFromSeed(seed: ByteArray): Pair<ByteArray, ByteArray> {
+        // Derive encryption key pair (X25519 for ECDH)
+        // Use the seed to generate a deterministic key pair
+        val encryptionKeyPair = crypto.deriveKeyPairFromSeed(seed, "encryption")
+
+        // Derive identity key pair (Ed25519 for signatures)
+        val identityKeyPair = crypto.deriveKeyPairFromSeed(seed, "identity")
+
+        return Pair(
+            encryptionKeyPair.publicKey,
+            identityKeyPair.publicKey
+        )
     }
 }
 

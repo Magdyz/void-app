@@ -98,6 +98,16 @@ val appModule = module {
     // App State Manager - determines navigation flow
     single { AppStateManager(rhythmSecurityManager = get()) }
 
+    // Public Key to Contact ID Mapper - converts public key hex to contact UUID
+    // Used by MessageRepository to match received messages to contacts
+    single {
+        val contactRepo = get<com.void.block.contacts.data.ContactRepository>()
+        val callback: suspend (String) -> String? = { publicKeyHex ->
+            contactRepo.findContactByPublicKeyHex(publicKeyHex)?.id
+        }
+        callback
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // Message Sync Infrastructure (for push notifications and background sync)
     // ═══════════════════════════════════════════════════════════════════
