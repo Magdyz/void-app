@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.void.block.messaging.domain.Conversation
+import com.void.slate.design.theme.TerminalStandard
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -33,23 +34,14 @@ fun ConversationItem(
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.Top
     ) {
-        // Avatar (first letter of contact name)
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = contactName.firstOrNull()?.uppercase() ?: "?",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                fontWeight = FontWeight.Bold
-            )
-        }
+        // Monogram in brackets [P] instead of circular avatar
+        Text(
+            text = TerminalStandard.monogram(contactName),
+            style = TerminalStandard.Monogram,
+            color = TerminalStandard.Text
+        )
 
         Spacer(modifier = Modifier.width(12.dp))
 
@@ -57,73 +49,25 @@ fun ConversationItem(
         Column(
             modifier = Modifier.weight(1f)
         ) {
-            // Contact name
+            // Contact name - Bold white if unread, Normal grey if read
             Text(
                 text = contactName,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = if (conversation.hasUnreadMessages()) FontWeight.Bold else FontWeight.Normal,
+                style = if (conversation.hasUnreadMessages()) TerminalStandard.BodyBold else TerminalStandard.Body,
+                color = if (conversation.hasUnreadMessages()) TerminalStandard.Text else TerminalStandard.TextSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Message preview
+            // Message preview - Indented, same style as name
             Text(
-                text = conversation.getPreviewText(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = if (conversation.hasUnreadMessages()) FontWeight.Medium else FontWeight.Normal,
+                text = "  ${conversation.getPreviewText()}", // Indented with 2 spaces
+                style = TerminalStandard.Body,
+                color = if (conversation.hasUnreadMessages()) TerminalStandard.Text else TerminalStandard.TextSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-        }
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        // Right side: timestamp and unread badge
-        Column(
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            // Timestamp
-            conversation.lastMessageAt?.let { timestamp ->
-                Text(
-                    text = formatConversationTime(timestamp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (conversation.hasUnreadMessages()) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    }
-                )
-            }
-
-            // Unread badge
-            if (conversation.hasUnreadMessages()) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = if (conversation.unreadCount > 9) "9+" else conversation.unreadCount.toString(),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            // Muted indicator
-            if (conversation.isMuted) {
-                Text(
-                    text = "🔇",
-                    style = MaterialTheme.typography.labelSmall
-                )
-            }
         }
     }
 }

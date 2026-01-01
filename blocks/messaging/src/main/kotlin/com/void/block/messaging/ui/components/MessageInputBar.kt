@@ -1,5 +1,6 @@
 package com.void.block.messaging.ui.components
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -13,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import com.void.slate.design.theme.TerminalStandard
 
 /**
  * Message input bar for chat screen.
@@ -28,28 +30,35 @@ fun MessageInputBar(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 2.dp
+        color = TerminalStandard.Background
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Text input
+            // Text input with bracket styling
             OutlinedTextField(
                 value = message,
                 onValueChange = onMessageChange,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .border(
+                        width = 1.dp,
+                        color = TerminalStandard.Border,
+                        shape = RoundedCornerShape(0.dp)
+                    ),
                 placeholder = {
                     Text(
-                        text = "Message",
-                        style = MaterialTheme.typography.bodyLarge
+                        text = "[ type message... ]",
+                        style = TerminalStandard.Input,
+                        color = TerminalStandard.TextSecondary
                     )
                 },
-                shape = RoundedCornerShape(24.dp),
+                textStyle = TerminalStandard.Input,
+                shape = RoundedCornerShape(0.dp),
                 keyboardOptions = KeyboardOptions(
                     capitalization = KeyboardCapitalization.Sentences,
                     imeAction = ImeAction.Send
@@ -64,20 +73,31 @@ fun MessageInputBar(
                 enabled = enabled,
                 maxLines = 5,
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    focusedBorderColor = TerminalStandard.Text,
+                    unfocusedBorderColor = TerminalStandard.Border,
+                    focusedTextColor = TerminalStandard.Text,
+                    unfocusedTextColor = TerminalStandard.Text,
+                    disabledTextColor = TerminalStandard.Disabled,
+                    cursorColor = TerminalStandard.Text,
+                    focusedContainerColor = TerminalStandard.Background,
+                    unfocusedContainerColor = TerminalStandard.Background
                 )
             )
 
-            // Send button
-            FilledIconButton(
+            // Send button - text-based
+            TextButton(
                 onClick = onSend,
                 enabled = enabled && message.isNotBlank(),
-                modifier = Modifier.size(40.dp)
+                colors = ButtonDefaults.textButtonColors(
+                    containerColor = if (enabled && message.isNotBlank()) TerminalStandard.Text else TerminalStandard.Disabled,
+                    contentColor = TerminalStandard.Background,
+                    disabledContainerColor = TerminalStandard.Disabled,
+                    disabledContentColor = TerminalStandard.Background
+                )
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "Send message"
+                Text(
+                    text = TerminalStandard.bracketLabel("SEND"),
+                    style = TerminalStandard.Button
                 )
             }
         }

@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.void.block.contacts.domain.Contact
+import com.void.slate.design.theme.TerminalStandard
 
 /**
  * Display a single contact in a list.
@@ -35,79 +36,62 @@ fun ContactItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Surface(
+    Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
-        tonalElevation = 1.dp
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top
     ) {
-        Row(
-            modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+        // Monogram in brackets [A] instead of circular avatar
+        Text(
+            text = TerminalStandard.monogram(contact.getDisplayNameOrIdentity()),
+            style = TerminalStandard.Monogram,
+            color = if (contact.blocked) TerminalStandard.Disabled else TerminalStandard.Text
+        )
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        // Contact info
+        Column(
+            modifier = Modifier.weight(1f)
         ) {
-            // Avatar with first letter or icon
-            ContactAvatar(
-                displayName = contact.getDisplayNameOrIdentity(),
-                verified = contact.verified,
-                blocked = contact.blocked
+            // Display name or identity
+            Text(
+                text = contact.identity.toString().uppercase(),
+                style = TerminalStandard.Body,
+                color = if (contact.blocked) TerminalStandard.Disabled else TerminalStandard.Text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
 
-            Spacer(modifier = Modifier.width(16.dp))
-
-            // Contact info
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
-                // Display name or identity
+            // Display name (if set)
+            if (contact.displayName != null) {
                 Text(
-                    text = contact.getDisplayNameOrIdentity(),
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
+                    text = "  ${contact.displayName}",
+                    style = TerminalStandard.Body,
+                    color = TerminalStandard.TextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-
-                // Three-word identity (if different from display name)
-                if (contact.displayName != null) {
-                    Text(
-                        text = contact.identity.toString(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-
-                // Last seen (if available)
-                contact.lastSeenAt?.let { lastSeen ->
-                    Text(
-                        text = formatLastSeen(lastSeen),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
+        }
 
-            // Status icons
-            if (contact.verified) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = "Verified",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
+        // Status indicators - text-based
+        if (contact.verified) {
+            Text(
+                text = "[verified]",
+                style = TerminalStandard.Caption,
+                color = TerminalStandard.Text
+            )
+        }
 
-            if (contact.blocked) {
-                Spacer(modifier = Modifier.width(8.dp))
-                Icon(
-                    imageVector = Icons.Default.Warning,
-                    contentDescription = "Blocked",
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
+        if (contact.blocked) {
+            Text(
+                text = "[blocked]",
+                style = TerminalStandard.Caption,
+                color = TerminalStandard.Disabled
+            )
         }
     }
 }

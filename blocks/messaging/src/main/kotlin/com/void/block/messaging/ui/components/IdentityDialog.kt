@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -21,6 +22,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.void.slate.design.theme.TerminalStandard
 import kotlinx.coroutines.launch
 
 /**
@@ -107,7 +109,16 @@ fun IdentityDialog(
                                 width = 1.dp,
                                 color = MaterialTheme.colorScheme.outline,
                                 shape = RoundedCornerShape(12.dp)
-                            ),
+                            )
+                            .clickable {
+                                copyToClipboard(context, identity)
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        message = "Identity copied to clipboard",
+                                        duration = SnackbarDuration.Short
+                                    )
+                                }
+                            },
                         shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                     ) {
@@ -117,31 +128,9 @@ fun IdentityDialog(
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(16.dp)
                         )
-                    }
-
-                    // Copy button
-                    OutlinedButton(
-                        onClick = {
-                            copyToClipboard(context, identity)
-                            scope.launch {
-                                snackbarHostState.showSnackbar(
-                                    message = "Identity copied to clipboard",
-                                    duration = SnackbarDuration.Short
-                                )
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Copy to Clipboard")
                     }
                 }
 

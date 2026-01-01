@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import com.void.block.messaging.ui.components.MessageBubble
 import com.void.block.messaging.ui.components.MessageInputBar
 import com.void.block.messaging.ui.components.TypingIndicator
+import com.void.slate.design.theme.TerminalStandard
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -41,15 +42,31 @@ fun ChatScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(contactName) },
+                title = {
+                    val truncatedName = if (contactName.length > 4) {
+                        contactName.take(4) + "..."
+                    } else {
+                        contactName
+                    }
+                    Text(
+                        text = "@$truncatedName",
+                        style = TerminalStandard.Header,
+                        color = TerminalStandard.Text
+                    )
+                },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                    TextButton(onClick = onNavigateBack) {
+                        Text(
+                            text = TerminalStandard.bracketLabel("<"),
+                            style = TerminalStandard.Body,
+                            color = TerminalStandard.Text
                         )
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = TerminalStandard.Background,
+                    titleContentColor = TerminalStandard.Text
+                )
             )
         },
         bottomBar = {
@@ -84,7 +101,7 @@ fun ChatScreen(
                 is ChatState.Loading -> {
                     CircularProgressIndicator(
                         modifier = Modifier.align(Alignment.Center),
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = TerminalStandard.Text
                     )
                 }
 
@@ -147,17 +164,10 @@ private fun EmptyMessagesView(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
-            text = "No messages yet",
-            style = MaterialTheme.typography.titleMedium,
+            text = "no messages",
+            style = TerminalStandard.Body,
             textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Text(
-            text = "Say hi to $contactName!",
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            color = TerminalStandard.TextSecondary
         )
     }
 }
@@ -176,16 +186,16 @@ private fun ErrorView(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
-            text = "Error loading messages",
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.error,
+            text = "error",
+            style = TerminalStandard.Body,
+            color = TerminalStandard.Text,
             textAlign = TextAlign.Center
         )
 
         Text(
             text = message,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = TerminalStandard.Body,
+            color = TerminalStandard.TextSecondary,
             textAlign = TextAlign.Center
         )
     }

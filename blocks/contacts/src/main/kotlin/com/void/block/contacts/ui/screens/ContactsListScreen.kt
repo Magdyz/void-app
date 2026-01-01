@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -21,6 +22,8 @@ import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -33,6 +36,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.void.block.contacts.ui.components.ContactItem
 import com.void.block.contacts.ui.viewmodels.ContactsViewModel
+import com.void.slate.design.theme.TerminalStandard
 import org.koin.androidx.compose.koinViewModel
 
 /**
@@ -52,33 +56,30 @@ fun ContactsListScreen(
     val contacts by viewModel.contacts.collectAsState()
     val requests by viewModel.contactRequests.collectAsState()
 
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-
     Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            LargeTopAppBar(
-                title = { Text("Contacts") },
+            TopAppBar(
+                title = {
+                    Text(
+                        text = TerminalStandard.header("CONTACTS"),
+                        style = TerminalStandard.Header,
+                        color = TerminalStandard.Text
+                    )
+                },
                 actions = {
-                    IconButton(onClick = onNavigateToScanQR) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Scan QR Code"
+                    TextButton(onClick = onNavigateToAddContact) {
+                        Text(
+                            text = TerminalStandard.bracketLabel("+ ADD"),
+                            style = TerminalStandard.Body,
+                            color = TerminalStandard.Text
                         )
                     }
                 },
-                scrollBehavior = scrollBehavior
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = onNavigateToAddContact
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "Add Contact"
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = TerminalStandard.Background,
+                    titleContentColor = TerminalStandard.Text
                 )
-            }
+            )
         }
     ) { paddingValues ->
         PullToRefreshBox(
@@ -102,9 +103,9 @@ fun ContactsListScreen(
                     if (requests.isNotEmpty()) {
                         item {
                             Text(
-                                text = "Pending Requests",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.primary,
+                                text = "// PENDING (${requests.size})",
+                                style = TerminalStandard.Body,
+                                color = TerminalStandard.Text,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                             )
                         }
@@ -126,9 +127,9 @@ fun ContactsListScreen(
                     if (contacts.isNotEmpty()) {
                         item {
                             Text(
-                                text = "All Contacts (${contacts.size})",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.primary,
+                                text = "// ALL (${contacts.size})",
+                                style = TerminalStandard.Body,
+                                color = TerminalStandard.Text,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                             )
                         }
@@ -162,28 +163,27 @@ private fun EmptyContactsState(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(32.dp)
         ) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = null,
-                modifier = Modifier
-                    .padding(16.dp),
-                tint = MaterialTheme.colorScheme.outline
-            )
-
             Text(
-                text = "No contacts yet",
-                style = MaterialTheme.typography.titleLarge,
+                text = "no contacts",
+                style = TerminalStandard.Body,
+                color = TerminalStandard.TextSecondary,
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            Text(
-                text = "Add contacts to start secure conversations",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
+            TextButton(
+                onClick = onAddContact,
+                colors = ButtonDefaults.textButtonColors(
+                    containerColor = TerminalStandard.Text,
+                    contentColor = TerminalStandard.Background
+                )
+            ) {
+                Text(
+                    text = TerminalStandard.bracketLabel("+ ADD"),
+                    style = TerminalStandard.Button
+                )
+            }
         }
     }
 }

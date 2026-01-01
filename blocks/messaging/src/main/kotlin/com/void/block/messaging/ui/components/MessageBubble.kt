@@ -15,6 +15,7 @@ import com.void.block.messaging.domain.Message
 import com.void.block.messaging.domain.MessageContent
 import com.void.block.messaging.domain.MessageDirection
 import com.void.block.messaging.domain.MessageStatus
+import com.void.slate.design.theme.TerminalStandard
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -29,140 +30,92 @@ fun MessageBubble(
 ) {
     val isOutgoing = message.direction == MessageDirection.OUTGOING
 
+    // Terminal Standard: No bubbles, just left/right alignment with arrow indicators
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 6.dp),
         horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
     ) {
         Column(
-            modifier = Modifier
-                .widthIn(max = 280.dp)
-                .clip(
-                    RoundedCornerShape(
-                        topStart = 16.dp,
-                        topEnd = 16.dp,
-                        bottomStart = if (isOutgoing) 16.dp else 4.dp,
-                        bottomEnd = if (isOutgoing) 4.dp else 16.dp
-                    )
-                )
-                .background(
-                    if (isOutgoing) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    }
-                )
-                .padding(12.dp)
+            modifier = Modifier.widthIn(max = 280.dp),
+            horizontalAlignment = if (isOutgoing) Alignment.End else Alignment.Start
         ) {
-            // Message content
+            // Message content with arrow indicator
             when (val content = message.content) {
                 is MessageContent.Text -> {
                     Text(
-                        text = content.text,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = if (isOutgoing) {
-                            MaterialTheme.colorScheme.onPrimary
+                        text = if (isOutgoing) {
+                            TerminalStandard.sentMessage(content.text)
                         } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
+                            TerminalStandard.receivedMessage(content.text)
+                        },
+                        style = TerminalStandard.Body,
+                        color = TerminalStandard.Text
                     )
                 }
                 is MessageContent.Image -> {
                     Text(
-                        text = "📷 Image",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (isOutgoing) {
-                            MaterialTheme.colorScheme.onPrimary
+                        text = if (isOutgoing) {
+                            TerminalStandard.sentMessage("[image]")
                         } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
+                            TerminalStandard.receivedMessage("[image]")
+                        },
+                        style = TerminalStandard.Body,
+                        color = TerminalStandard.Text
                     )
                 }
                 is MessageContent.File -> {
                     Text(
-                        text = "📎 ${content.fileName}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (isOutgoing) {
-                            MaterialTheme.colorScheme.onPrimary
+                        text = if (isOutgoing) {
+                            TerminalStandard.sentMessage("[file: ${content.fileName}]")
                         } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
+                            TerminalStandard.receivedMessage("[file: ${content.fileName}]")
+                        },
+                        style = TerminalStandard.Body,
+                        color = TerminalStandard.Text
                     )
                 }
                 is MessageContent.System -> {
                     Text(
-                        text = content.message,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        text = "// ${content.message}",
+                        style = TerminalStandard.Caption,
+                        color = TerminalStandard.TextSecondary,
                         textAlign = TextAlign.Center
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
             // Timestamp and status
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = formatTimestamp(message.timestamp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (isOutgoing) {
-                        MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            Text(
+                text = buildString {
+                    append(formatTimestamp(message.timestamp))
+                    if (isOutgoing) {
+                        append(" ")
+                        append(getStatusIndicator(message.status))
                     }
-                )
-
-                if (isOutgoing) {
-                    Spacer(modifier = Modifier.width(4.dp))
-                    MessageStatusIndicator(message.status)
-                }
-            }
-
-            // Expiry indicator if message will expire
-            if (message.expiresAt != null) {
-                Spacer(modifier = Modifier.height(4.dp))
-                val remainingTime = message.expiresAt - System.currentTimeMillis()
-                if (remainingTime > 0) {
-                    Text(
-                        text = "⏱️ ${formatDuration(remainingTime)}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isOutgoing) {
-                            MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f)
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                        }
-                    )
-                }
-            }
+                },
+                style = TerminalStandard.Caption,
+                color = TerminalStandard.TextSecondary
+            )
         }
     }
 }
 
 /**
- * Status indicator for outgoing messages.
+ * Status indicator for outgoing messages - text-based.
  */
-@Composable
-private fun MessageStatusIndicator(status: MessageStatus) {
-    val (icon, color) = when (status) {
-        MessageStatus.SENDING -> "⏳" to MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f)
-        MessageStatus.SENT -> "✓" to MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
-        MessageStatus.DELIVERED -> "✓✓" to MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
-        MessageStatus.READ -> "✓✓" to MaterialTheme.colorScheme.secondary
-        MessageStatus.FAILED -> "⚠️" to MaterialTheme.colorScheme.error
-        MessageStatus.EXPIRED -> "⏱️" to MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f)
+private fun getStatusIndicator(status: MessageStatus): String {
+    return when (status) {
+        MessageStatus.SENDING -> "[...]"
+        MessageStatus.SENT -> "[sent]"
+        MessageStatus.DELIVERED -> "[delivered]"
+        MessageStatus.READ -> "[read]"
+        MessageStatus.FAILED -> "[failed]"
+        MessageStatus.EXPIRED -> "[expired]"
     }
-
-    Text(
-        text = icon,
-        style = MaterialTheme.typography.labelSmall,
-        color = color
-    )
 }
 
 /**

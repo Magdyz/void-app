@@ -15,6 +15,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.void.block.messaging.ui.components.ConversationItem
 import com.void.block.messaging.ui.components.IdentityDialog
+import com.void.slate.design.theme.TerminalStandard
 import org.koin.androidx.compose.koinViewModel
 
 /**
@@ -38,38 +39,46 @@ fun ConversationListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Messages") },
+                title = {
+                    Text(
+                        text = TerminalStandard.header("INBOX"),
+                        style = TerminalStandard.Header,
+                        color = TerminalStandard.Text
+                    )
+                },
                 navigationIcon = {
                     // Ghost/Profile icon - only show if identity is available
                     if (userIdentity != null) {
-                        IconButton(onClick = {
-                            showIdentityDialog = true
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = "Your identity",
-                                tint = MaterialTheme.colorScheme.primary
+                        TextButton(
+                            onClick = {
+                                showIdentityDialog = true
+                            },
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = TerminalStandard.Text
+                            )
+                        ) {
+                            Text(
+                                text = TerminalStandard.bracketLabel("me"),
+                                style = TerminalStandard.Body,
+                                color = TerminalStandard.Text
                             )
                         }
                     }
                 },
                 actions = {
-                    // Refresh button - triggers immediate sync
-                    IconButton(onClick = { viewModel.syncMessages() }) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Sync messages"
+                    // New conversation button - text-based
+                    TextButton(onClick = onNewConversation) {
+                        Text(
+                            text = TerminalStandard.bracketLabel("+ NEW"),
+                            style = TerminalStandard.Body,
+                            color = TerminalStandard.Text
                         )
                     }
-
-                    // New conversation button
-                    IconButton(onClick = onNewConversation) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "New conversation"
-                        )
-                    }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = TerminalStandard.Background,
+                    titleContentColor = TerminalStandard.Text
+                )
             )
         }
     ) { paddingValues ->
@@ -82,7 +91,7 @@ fun ConversationListScreen(
             if (isRefreshing) {
                 LinearProgressIndicator(
                     modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = TerminalStandard.Text
                 )
             }
 
@@ -91,7 +100,7 @@ fun ConversationListScreen(
                 is ConversationListState.Loading -> {
                     CircularProgressIndicator(
                         modifier = Modifier.align(Alignment.Center),
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = TerminalStandard.Text
                     )
                 }
 
@@ -174,25 +183,23 @@ private fun EmptyConversationsView(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = "No conversations yet",
-            style = MaterialTheme.typography.titleLarge,
+            text = "no conversations",
+            style = TerminalStandard.Body,
+            color = TerminalStandard.TextSecondary,
             textAlign = TextAlign.Center
         )
 
-        Text(
-            text = "Start a new conversation by adding a contact",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
-
-        Button(onClick = onNewConversation) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = null
+        TextButton(
+            onClick = onNewConversation,
+            colors = ButtonDefaults.textButtonColors(
+                containerColor = TerminalStandard.Text,
+                contentColor = TerminalStandard.Background
             )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("New Conversation")
+        ) {
+            Text(
+                text = TerminalStandard.bracketLabel("+ NEW"),
+                style = TerminalStandard.Button
+            )
         }
     }
 }
@@ -212,21 +219,30 @@ private fun ErrorView(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = "Error loading conversations",
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.error,
+            text = "error",
+            style = TerminalStandard.Body,
+            color = TerminalStandard.Text,
             textAlign = TextAlign.Center
         )
 
         Text(
             text = message,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = TerminalStandard.Body,
+            color = TerminalStandard.TextSecondary,
             textAlign = TextAlign.Center
         )
 
-        Button(onClick = onRetry) {
-            Text("Retry")
+        TextButton(
+            onClick = onRetry,
+            colors = ButtonDefaults.textButtonColors(
+                containerColor = TerminalStandard.Text,
+                contentColor = TerminalStandard.Background
+            )
+        ) {
+            Text(
+                text = TerminalStandard.bracketLabel("RETRY"),
+                style = TerminalStandard.Button
+            )
         }
     }
 }
