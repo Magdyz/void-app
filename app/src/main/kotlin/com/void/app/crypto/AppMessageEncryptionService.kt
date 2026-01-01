@@ -60,6 +60,7 @@ class AppMessageEncryptionService(
             }
 
             val mySenderId = myPublicKey.joinToString("") { "%02x".format(it) }
+            Log.d(TAG, "🔍 [SENDER_PUBKEY] My encryption publicKey: ${mySenderId.take(32)}...")
 
             // Convert message to bytes
             val messageBytes = messageText.toByteArray(Charsets.UTF_8)
@@ -184,6 +185,10 @@ class AppMessageEncryptionService(
             // Try decrypting with each contact's public key
             for (contact in allContacts) {
                 try {
+                    val contactPubKeyHex = contact.publicKey.joinToString("") { "%02x".format(it) }
+                    Log.d(TAG, "🔍 [TRY_DECRYPT] Contact: ${contact.identity}")
+                    Log.d(TAG, "🔍   Stored publicKey: ${contactPubKeyHex.take(32)}...")
+
                     val plaintext = messageEncryption.decrypt(
                         encrypted = encryptedMessage,
                         senderPublicKey = contact.publicKey,
@@ -198,6 +203,7 @@ class AppMessageEncryptionService(
 
                 } catch (e: Exception) {
                     // Decryption failed with this contact, try next
+                    Log.w(TAG, "⚠️ [DECRYPT_FAILED] Contact ${contact.identity}: ${e.message}")
                 }
             }
 

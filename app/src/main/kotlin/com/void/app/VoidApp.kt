@@ -60,6 +60,12 @@ class VoidApp : Application() {
                 // Get dependencies from Koin
                 val syncScheduler: SyncScheduler by inject(SyncScheduler::class.java)
                 val eventBus: com.void.slate.event.EventBus by inject(com.void.slate.event.EventBus::class.java)
+                val contactRepository: com.void.block.contacts.data.ContactRepository by inject(com.void.block.contacts.data.ContactRepository::class.java)
+
+                // ✅ CRITICAL FIX: Load contacts BEFORE syncing messages
+                // Messages need contacts to be decrypted (sealed sender)
+                contactRepository.loadContacts()
+                Log.d(TAG, "✅ Contacts loaded for message decryption")
 
                 // Schedule periodic sync as fallback (runs every 6 hours)
                 // This ensures messages are delivered even if push notifications fail
