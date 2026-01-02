@@ -135,7 +135,13 @@ object Routes {
     const val RHYTHM_CONFIRM = "rhythm/confirm"
     const val RHYTHM_UNLOCK = "rhythm/unlock"
     const val RHYTHM_RECOVERY = "rhythm/recovery"
-    
+
+    // Constellation
+    const val CONSTELLATION_SETUP = "constellation/setup"
+    const val CONSTELLATION_CONFIRM = "constellation/confirm"
+    const val CONSTELLATION_UNLOCK = "constellation/unlock"
+    const val CONSTELLATION_RECOVERY = "constellation/recovery"
+
     // Messaging
     const val MESSAGES_LIST = "messages/list"
     const val MESSAGES_CHAT = "messages/chat/{contactId}"

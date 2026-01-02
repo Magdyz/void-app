@@ -19,7 +19,6 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import com.void.app.navigation.VoidNavGraph
 import com.void.block.identity.domain.GenerateIdentity
-import com.void.block.rhythm.RhythmVerification
 import com.void.slate.crypto.CryptoProvider
 import com.void.slate.design.theme.VoidTheme
 import com.void.slate.navigation.Routes
@@ -208,12 +207,7 @@ class MainActivity : ComponentActivity() {
             Log.d("VOID_SECURE", "✨ Identity Generation: WORKING")
             Log.d("VOID_SECURE", "══════════════════════════════════════════════════════")
 
-            // TEST: Verify Phase 1B - Rhythm Security works
-            RhythmVerification.verify(
-                context = this@MainActivity,
-                crypto = cryptoProvider,
-                storage = secureStorage
-            )
+            // TODO: Add Constellation verification tests if needed
 
         } catch (e: Exception) {
             Log.e("VOID_SECURE", "❌ VERIFICATION FAILED: ${e.message}", e)

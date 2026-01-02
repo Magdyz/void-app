@@ -11,20 +11,20 @@ import androidx.compose.ui.graphics.Color
 object VoidColors {
 
     // ═══════════════════════════════════════════════════════════════════
-    // Primary - Pure Black (bold, modern, minimal)
+    // Primary - Pure White (visible on black background)
     // ═══════════════════════════════════════════════════════════════════
-    val Primary = Color(0xFF000000)          // Pure Black
-    val PrimaryVariant = Color(0xFF000000)   // Pure Black
-    val PrimaryLight = Color(0xFF1A1A1A)     // Near Black
-    val OnPrimary = Color(0xFFFFFFFF)        // Pure White text
+    val Primary = Color(0xFFFFFFFF)          // Pure White - for buttons/accents
+    val PrimaryVariant = Color(0xFFEEEEEE)   // Near White
+    val PrimaryLight = Color(0xFFFFFFFF)     // Pure White
+    val OnPrimary = Color(0xFF000000)        // Black text on white buttons
 
     // ═══════════════════════════════════════════════════════════════════
-    // Secondary - Pure White (clean, clear)
+    // Secondary - Light Gray (secondary actions)
     // ═══════════════════════════════════════════════════════════════════
-    val Secondary = Color(0xFFFFFFFF)        // Pure White
-    val SecondaryVariant = Color(0xFFEEEEEE) // Near White
-    val SecondaryLight = Color(0xFFFFFFFF)   // Pure White
-    val OnSecondary = Color(0xFF000000)      // Pure Black text
+    val Secondary = Color(0xFFCCCCCC)        // Light Gray
+    val SecondaryVariant = Color(0xFF999999) // Medium Gray
+    val SecondaryLight = Color(0xFFEEEEEE)   // Near White
+    val OnSecondary = Color(0xFF000000)      // Black text
 
     // ═══════════════════════════════════════════════════════════════════
     // Background - Pure Black for OLED (modern, sleek)
@@ -34,10 +34,10 @@ object VoidColors {
     val OnBackground = Color(0xFFFFFFFF)     // Pure White text
 
     // ═══════════════════════════════════════════════════════════════════
-    // Surface - Cards, dialogs, sheets
+    // Surface - Cards, dialogs, sheets (slightly elevated from background)
     // ═══════════════════════════════════════════════════════════════════
-    val Surface = Color(0xFF000000)          // Pure Black
-    val SurfaceVariant = Color(0xFF0D0D0D)   // Slightly lighter black
+    val Surface = Color(0xFF1A1A1A)          // Dark Gray (visible cards)
+    val SurfaceVariant = Color(0xFF2A2A2A)   // Lighter gray (elevated surfaces)
     val OnSurface = Color(0xFFFFFFFF)        // Pure White text
     val OnSurfaceVariant = Color(0xFFCCCCCC) // Light gray text
 

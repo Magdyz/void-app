@@ -6,12 +6,13 @@ import com.void.app.RuntimeFeatureFlags
 import com.void.app.crypto.AppMessageEncryptionService
 import com.void.block.messaging.crypto.MessageEncryptionService
 import com.void.block.messaging.sync.MessageSyncEngine
+import app.voidapp.block.constellation.constellationModule
 import com.void.block.contacts.contactsModule
 // import com.void.block.decoy.decoyModule
 import com.void.block.identity.identityModule
 import com.void.block.messaging.messagingModule
 // import com.void.block.onboarding.onboardingModule
-import com.void.block.rhythm.rhythmModule
+// import com.void.block.rhythm.rhythmModule
 import com.void.slate.block.BlockRegistry
 import com.void.slate.block.FeatureFlags
 import com.void.slate.crypto.CryptoProvider
@@ -76,6 +77,16 @@ val appModule = module {
         }
     }
 
+    // Identity Seed Provider - provides identity seed for constellation block
+    // Blocks cannot depend on each other, so app module bridges them
+    single<suspend () -> ByteArray?> {
+        val identityRepo = get<com.void.block.identity.data.IdentityRepository>()
+        // Return a suspend lambda that fetches the identity seed
+        suspend {
+            identityRepo.getIdentity()?.seed
+        }
+    }
+
     // Message Encryption Service - bridges blocks for secure messaging
     // This lives in app module because it needs access to both identity and contacts
     single<MessageEncryptionService> {
@@ -96,7 +107,7 @@ val appModule = module {
     }
 
     // App State Manager - determines navigation flow
-    single { AppStateManager(rhythmSecurityManager = get()) }
+    single { AppStateManager(constellationSecurityManager = get()) }
 
     // Public Key to Contact ID Mapper - converts public key hex to contact UUID
     // Used by MessageRepository to match received messages to contacts
@@ -133,11 +144,12 @@ val appModule = module {
     // Include all block modules
     // These are loaded dynamically based on which blocks are included in build
     includes(
-        networkModule,    // Network infrastructure (slate module)
+        networkModule,        // Network infrastructure (slate module)
         identityModule,
-        rhythmModule,
-        messagingModule,  // Phase 2: Messaging
-        contactsModule,   // Phase 2: Contacts
+        constellationModule,  // Phase 3: Constellation lock authentication
+        // rhythmModule,      // Replaced by constellation
+        messagingModule,      // Phase 2: Messaging
+        contactsModule,       // Phase 2: Contacts
         // decoyModule,
         // onboardingModule,
     )

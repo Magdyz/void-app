@@ -32,7 +32,8 @@ include(":slate:network")
 // Comment out any block to remove it from the build
 // ═══════════════════════════════════════════════════════════════════
 include(":blocks:identity")      // 3-word identity system
-include(":blocks:rhythm")        // Rhythm key authentication - Phase 1B ✅
+// include(":blocks:rhythm")        // Rhythm key authentication - Replaced by constellation
+include(":blocks:constellation") // Constellation lock authentication - Phase 3 ✅
 include(":blocks:messaging")     // Core messaging - Phase 2 ✅
 include(":blocks:contacts")      // Contact management - Phase 2 ✅
 // include(":blocks:decoy")         // Decoy mode for plausible deniability - TODO: Phase 3

@@ -16,9 +16,16 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import app.voidapp.block.constellation.ui.setup.ConstellationSetupScreen
+import app.voidapp.block.constellation.ui.setup.ConstellationSetupViewModel
+import app.voidapp.block.constellation.ui.setup.ConstellationSetupState
+import app.voidapp.block.constellation.ui.confirm.ConstellationConfirmScreen
+import app.voidapp.block.constellation.ui.confirm.ConstellationConfirmViewModel
+import app.voidapp.block.constellation.ui.confirm.ConstellationConfirmState
+import app.voidapp.block.constellation.ui.unlock.ConstellationUnlockScreen
+import app.voidapp.block.constellation.ui.unlock.ConstellationUnlockViewModel
 import com.void.block.identity.data.IdentityRepository
 import com.void.block.identity.ui.IdentityScreen
-import com.void.block.rhythm.ui.*
 import com.void.slate.navigation.Routes
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -27,9 +34,9 @@ import org.koin.compose.koinInject
  * Main navigation graph for VOID app.
  *
  * Navigation Flow:
- * 1. First Launch: Identity → Rhythm Setup → Rhythm Confirm → Recovery Phrase → Messages
- * 2. Subsequent Launch: Rhythm Unlock → Messages
- * 3. Recovery: Recovery Input → Rhythm Setup → Messages
+ * 1. First Launch: Identity → Constellation Setup → Constellation Confirm → Messages
+ * 2. Subsequent Launch: Constellation Unlock → Messages
+ * 3. Recovery: Recovery Input → Constellation Setup → Messages
  */
 @Composable
 fun VoidNavGraph(
@@ -47,10 +54,10 @@ fun VoidNavGraph(
         composable(Routes.IDENTITY_GENERATE) {
             IdentityScreen(
                 onComplete = {
-                    // Identity created → Set up rhythm authentication
-                    println("VOID_DEBUG: onComplete callback called, navigating to ${Routes.RHYTHM_SETUP}")
+                    // Identity created → Set up constellation authentication
+                    println("VOID_DEBUG: onComplete callback called, navigating to ${Routes.CONSTELLATION_SETUP}")
                     try {
-                        navController.navigate(Routes.RHYTHM_SETUP)
+                        navController.navigate(Routes.CONSTELLATION_SETUP)
                         println("VOID_DEBUG: Navigation call completed successfully")
                     } catch (e: Exception) {
                         println("VOID_DEBUG: Navigation failed with error: ${e.message}")
@@ -63,79 +70,78 @@ fun VoidNavGraph(
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // Rhythm Block Routes
+        // Constellation Block Routes
         // ═══════════════════════════════════════════════════════════════
 
-        composable(Routes.RHYTHM_SETUP) {
-            println("VOID_DEBUG: RHYTHM_SETUP composable entered")
-            val setupViewModel: RhythmSetupViewModel = koinViewModel()
-            println("VOID_DEBUG: RhythmSetupViewModel obtained")
+        composable(Routes.CONSTELLATION_SETUP) {
+            println("VOID_DEBUG: CONSTELLATION_SETUP composable entered")
+            val setupViewModel: ConstellationSetupViewModel = koinViewModel()
+            println("VOID_DEBUG: ConstellationSetupViewModel obtained")
 
-            RhythmSetupScreen(
-                onComplete = { pattern ->
-                    println("VOID_DEBUG: RhythmSetupScreen onComplete called with pattern: ${pattern.intervals}")
-                    setupViewModel.onPatternCreated(pattern)
-                    // Navigate to confirmation
-                    navController.navigate(Routes.RHYTHM_CONFIRM)
+            ConstellationSetupScreen(
+                onComplete = { pattern, verificationHash, algorithmVersion, constellation, screenWidth, screenHeight ->
+                    println("VOID_DEBUG: ConstellationSetupScreen onComplete called")
+                    // Navigate to confirmation (ViewModel retains the state including bitmap)
+                    navController.navigate(Routes.CONSTELLATION_CONFIRM)
                 },
                 onCancel = {
-                    println("VOID_DEBUG: RhythmSetupScreen onCancel called")
+                    println("VOID_DEBUG: ConstellationSetupScreen onCancel called")
                     // Can't cancel during onboarding
                     navController.popBackStack()
                 }
             )
         }
 
-        composable(Routes.RHYTHM_CONFIRM) {
-            println("VOID_DEBUG: RHYTHM_CONFIRM composable entered")
+        composable(Routes.CONSTELLATION_CONFIRM) {
+            println("VOID_DEBUG: CONSTELLATION_CONFIRM composable entered")
 
-            // CRITICAL: Get the RhythmSetupViewModel from the RHYTHM_SETUP backstack entry
+            // Get the ConstellationSetupViewModel from the CONSTELLATION_SETUP backstack entry
             // This ensures we use the SAME ViewModel instance that has the pattern
             val setupBackStackEntry = try {
-                navController.getBackStackEntry(Routes.RHYTHM_SETUP)
+                navController.getBackStackEntry(Routes.CONSTELLATION_SETUP)
             } catch (e: IllegalArgumentException) {
                 // Backstack entry doesn't exist - we've navigated away
-                println("VOID_DEBUG: RHYTHM_SETUP not in backstack, returning early")
+                println("VOID_DEBUG: CONSTELLATION_SETUP not in backstack, returning early")
                 return@composable
             }
-            val setupViewModel: RhythmSetupViewModel = koinViewModel(viewModelStoreOwner = setupBackStackEntry)
-            val confirmViewModel: RhythmConfirmViewModel = koinViewModel()
+            val setupViewModel: ConstellationSetupViewModel = koinViewModel(viewModelStoreOwner = setupBackStackEntry)
             val setupState by setupViewModel.state.collectAsState()
-            val confirmState by confirmViewModel.state.collectAsState()
 
             println("VOID_DEBUG: Setup state: $setupState")
-            println("VOID_DEBUG: Confirm state: $confirmState")
 
-            // Get pattern from setup state
-            val pattern = (setupState as? RhythmSetupState.PatternCreated)?.pattern
-            println("VOID_DEBUG: Pattern from setup state: ${pattern?.intervals}")
+            // Get pattern, landmarks, and constellation from setup state
+            val patternState = setupState as? ConstellationSetupState.PatternCreated
+            val pattern = patternState?.pattern
+            val landmarks = patternState?.landmarks ?: emptyList()  // V2: Extract landmarks
+            val metadata = patternState?.metadata  // V2: Extract metadata
+            val constellation = patternState?.constellation
+            val screenWidth = patternState?.screenWidth ?: 0
+            val screenHeight = patternState?.screenHeight ?: 0
 
-            if (pattern != null) {
-                RhythmConfirmScreen(
-                    originalPattern = pattern,
-                    onConfirmed = { confirmedPattern ->
-                        confirmViewModel.onPatternConfirmed(confirmedPattern)
+            println("VOID_DEBUG: Pattern from setup state: $pattern")
+            println("VOID_DEBUG: Constellation dimensions: ${screenWidth}x${screenHeight}")
+
+            if (pattern != null && constellation != null && landmarks.isNotEmpty()) {
+                ConstellationConfirmScreen(
+                    firstPattern = pattern,
+                    landmarks = landmarks,          // V2: Pass landmarks
+                    metadata = metadata,            // V2: Pass metadata
+                    constellation = constellation,  // Pass exact same bitmap
+                    screenWidth = screenWidth,      // Lock dimensions
+                    screenHeight = screenHeight,
+                    onSuccess = {
+                        println("VOID_DEBUG: Constellation pattern confirmed successfully")
+                        // Navigate directly to main app (constellation setup complete)
+                        navController.navigate(Routes.MESSAGES_LIST) {
+                            // Clear all onboarding screens from back stack
+                            popUpTo(0) { inclusive = true }
+                        }
                     },
-                    onRetry = {
+                    onCancel = {
                         // Go back to setup to create new pattern
                         navController.popBackStack()
                     }
                 )
-
-                // Handle registration success
-                LaunchedEffect(confirmState) {
-                    when (val state = confirmState) {
-                        is RhythmConfirmState.Success -> {
-                            // Navigate to recovery phrase display
-                            // Don't pop backstack here - we'll clear it when reaching Messages
-                            navController.navigate(Routes.RHYTHM_RECOVERY)
-                        }
-                        is RhythmConfirmState.Error -> {
-                            // Show error, stay on screen
-                        }
-                        else -> {}
-                    }
-                }
             } else {
                 // Pattern is null - shouldn't happen, go back
                 println("VOID_DEBUG: Pattern is null, going back to previous screen")
@@ -145,74 +151,36 @@ fun VoidNavGraph(
             }
         }
 
-        composable(Routes.RHYTHM_RECOVERY) {
-            // Safely get the RhythmConfirmViewModel from the RHYTHM_CONFIRM backstack entry
-            // This might not exist if we've navigated away and backstack was cleared
-            val confirmBackStackEntry = try {
-                navController.getBackStackEntry(Routes.RHYTHM_CONFIRM)
-            } catch (e: IllegalArgumentException) {
-                // Backstack entry doesn't exist - we've navigated away
-                // Return early to avoid crash
-                return@composable
-            }
-            val confirmViewModel: RhythmConfirmViewModel = koinViewModel(viewModelStoreOwner = confirmBackStackEntry)
-            val confirmState by confirmViewModel.state.collectAsState()
-
-            when (val state = confirmState) {
-                is RhythmConfirmState.Success -> {
-                    // Display recovery phrase after successful registration
-                    RecoveryPhraseScreen(
-                        recoveryPhrase = state.recoveryPhrase,
-                        onConfirmed = {
-                            // Setup complete! Navigate to main app
-                            navController.navigate(Routes.MESSAGES_LIST) {
-                                // Clear all onboarding screens from back stack
-                                popUpTo(0) { inclusive = true }
-                            }
-                        },
-                        onBack = {
-                            // Can't go back from recovery phrase during onboarding
-                        }
-                    )
-                }
-                else -> {
-                    // TODO: Implement recovery phrase input screen for account recovery
-                    // For now, just navigate to unlock screen
-                    LaunchedEffect(Unit) {
-                        navController.navigate(Routes.RHYTHM_UNLOCK) {
-                            popUpTo(0) { inclusive = true }
-                        }
-                    }
-                }
+        composable(Routes.CONSTELLATION_RECOVERY) {
+            // TODO: Implement recovery phrase input screen for account recovery
+            // For now, show a placeholder
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Recovery Phrase Screen - Coming Soon",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    textAlign = TextAlign.Center
+                )
             }
         }
 
-        composable(Routes.RHYTHM_UNLOCK) {
-            val unlockViewModel: RhythmUnlockViewModel = koinViewModel()
-            val unlockResult by unlockViewModel.unlockResult.collectAsState()
-            val unlockSuccess by unlockViewModel.unlockSuccess.collectAsState()
-
-            RhythmUnlockScreen(
-                onUnlock = { pattern ->
-                    unlockViewModel.attemptUnlock(pattern)
-                },
-                unlockState = unlockResult,
-                onForgot = {
-                    // Navigate to recovery phrase input
-                    navController.navigate(Routes.RHYTHM_RECOVERY)
-                }
-            )
-
-            // Handle successful unlock
-            LaunchedEffect(unlockSuccess) {
-                unlockSuccess?.let { mode ->
+        composable(Routes.CONSTELLATION_UNLOCK) {
+            ConstellationUnlockScreen(
+                onUnlockSuccess = {
+                    println("VOID_DEBUG: Constellation unlock successful")
                     // Navigate to main app
                     navController.navigate(Routes.MESSAGES_LIST) {
-                        popUpTo(Routes.RHYTHM_UNLOCK) { inclusive = true }
+                        popUpTo(Routes.CONSTELLATION_UNLOCK) { inclusive = true }
                     }
-                    unlockViewModel.clearUnlockSuccess()
+                },
+                onForgotPattern = {
+                    // Navigate to recovery phrase input
+                    navController.navigate(Routes.CONSTELLATION_RECOVERY)
                 }
-            }
+            )
         }
 
         // ═══════════════════════════════════════════════════════════════

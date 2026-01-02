@@ -82,7 +82,8 @@ dependencies {
 
     // Blocks - all feature modules
     implementation(project(":blocks:identity"))
-    implementation(project(":blocks:rhythm"))  // Phase 1B: Rhythm authentication
+    implementation(project(":blocks:constellation"))  // Phase 3: Constellation lock authentication
+    // implementation(project(":blocks:rhythm"))  // Replaced by constellation
     implementation(project(":blocks:messaging"))  // Phase 2: Messaging
     implementation(project(":blocks:contacts"))  // Phase 2: Contacts
 
