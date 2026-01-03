@@ -15,4 +15,7 @@ dependencies {
 
     // Kotlinx Serialization for pattern serialization
     implementation(libs.kotlinx.serialization.json)
+
+    // AndroidX Biometric for biometric authentication
+    implementation("androidx.biometric:biometric:1.1.0")
 }

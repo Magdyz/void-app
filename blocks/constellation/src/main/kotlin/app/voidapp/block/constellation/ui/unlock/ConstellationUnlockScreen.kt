@@ -1,14 +1,19 @@
 package app.voidapp.block.constellation.ui.unlock
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.fragment.app.FragmentActivity
 import app.voidapp.block.constellation.ui.components.ConstellationView
 import org.koin.androidx.compose.koinViewModel
 import kotlin.math.max
@@ -53,10 +58,20 @@ fun ConstellationUnlockScreen(
         }
 
         is ConstellationUnlockState.Ready -> {
+            val context = LocalContext.current
+            val biometricEnabled by viewModel.biometricEnabled.collectAsState()
+
             ConstellationUnlockContent(
                 state = currentState,
+                biometricEnabled = biometricEnabled,
                 onStarTapped = { tap ->
                     viewModel.onStarTapped(tap, screenWidth, screenHeight)
+                },
+                onBiometricClick = {
+                    val activity = context as? FragmentActivity
+                    if (activity != null) {
+                        viewModel.triggerBiometric(activity)
+                    }
                 },
                 onReset = { viewModel.onReset() },
                 onForgotPattern = onForgotPattern,
@@ -115,7 +130,9 @@ fun ConstellationUnlockScreen(
 @Composable
 private fun ConstellationUnlockContent(
     state: ConstellationUnlockState.Ready,
+    biometricEnabled: Boolean,
     onStarTapped: (app.voidapp.block.constellation.domain.TapPoint) -> Unit,
+    onBiometricClick: () -> Unit,
     onReset: () -> Unit,
     onForgotPattern: () -> Unit,
     modifier: Modifier = Modifier
@@ -138,12 +155,40 @@ private fun ConstellationUnlockContent(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text(
-            text = "Tap your constellation pattern",
-            style = MaterialTheme.typography.bodyLarge,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        // Show biometric button if enabled
+        if (biometricEnabled) {
+            OutlinedButton(
+                onClick = onBiometricClick,
+                modifier = Modifier
+                    .fillMaxWidth(0.8f)
+                    .height(56.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(Modifier.width(12.dp))
+                Text("Unlock with Biometric")
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "or tap your pattern",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        } else {
+            Text(
+                text = "Tap your constellation pattern",
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
 
         if (state.attemptsRemaining < 5) {
             Spacer(modifier = Modifier.height(8.dp))

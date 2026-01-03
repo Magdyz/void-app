@@ -9,7 +9,12 @@ import androidx.navigation.compose.composable
 import app.voidapp.block.constellation.domain.ConstellationMatcher
 import app.voidapp.block.constellation.domain.StarGenerator
 import app.voidapp.block.constellation.domain.StarQuantizer
+import app.voidapp.block.constellation.security.BiometricAuthManager
 import app.voidapp.block.constellation.security.ConstellationSecurityManager
+import app.voidapp.block.constellation.ui.auth.AuthMethod
+import app.voidapp.block.constellation.ui.auth.AuthMethodSelectionScreen
+import app.voidapp.block.constellation.ui.auth.AuthMethodSelectionViewModel
+import app.voidapp.block.constellation.ui.biometric.BiometricSetupViewModel
 import app.voidapp.block.constellation.ui.confirm.ConstellationConfirmScreen
 import app.voidapp.block.constellation.ui.confirm.ConstellationConfirmState
 import app.voidapp.block.constellation.ui.confirm.ConstellationConfirmViewModel
@@ -40,6 +45,7 @@ class ConstellationBlock : BlockManifest {
     override val id: String = "constellation"
 
     override val routes: List<Route> = listOf(
+        Route.Screen(Routes.CONSTELLATION_AUTH_METHOD, "Choose Unlock Method"),
         Route.Screen(Routes.CONSTELLATION_SETUP, "Set Up Constellation"),
         Route.Screen(Routes.CONSTELLATION_CONFIRM, "Confirm Pattern"),
         Route.Screen(Routes.CONSTELLATION_UNLOCK, "Unlock"),
@@ -94,6 +100,31 @@ class ConstellationBlock : BlockManifest {
 
     @Composable
     override fun NavGraphBuilder.routes(navigator: Navigator) {
+        // Auth Method Selection - Choose between Constellation or Biometric
+        composable(Routes.CONSTELLATION_AUTH_METHOD) {
+            val viewModel: AuthMethodSelectionViewModel = koinViewModel()
+
+            AuthMethodSelectionScreen(
+                onMethodSelected = { method ->
+                    when (method) {
+                        AuthMethod.CONSTELLATION -> {
+                            // Go directly to constellation setup
+                            navigator.navigate(Routes.CONSTELLATION_SETUP)
+                        }
+                        AuthMethod.BIOMETRIC -> {
+                            // Go to biometric setup, then constellation backup
+                            navigator.navigate(Routes.CONSTELLATION_SETUP)
+                            // TODO: Navigate to biometric setup screen first
+                        }
+                    }
+                },
+                onCancel = {
+                    navigator.goBack()
+                },
+                viewModel = viewModel
+            )
+        }
+
         // Constellation Setup - Create initial pattern
         composable(Routes.CONSTELLATION_SETUP) {
             val viewModel: ConstellationSetupViewModel = koinViewModel()
@@ -180,6 +211,16 @@ val constellationModule = module {
     single { ConstellationMatcher(get()) }
     single { StarGenerator(get()) }
 
+    // Biometric layer
+    single {
+        BiometricAuthManager(
+            context = get(),
+            keystoreManager = get(),
+            storage = get(),
+            crypto = get()
+        )
+    }
+
     // Security layer
     single {
         ConstellationSecurityManager(
@@ -187,11 +228,12 @@ val constellationModule = module {
             storage = get(),
             crypto = get(),
             matcher = get(),
-            getIdentitySeed = get()  // Provided by app module
+            getIdentitySeed = get(),  // Provided by app module
+            biometricManager = get()  // Biometric support
         )
     }
 
-    // UI layer
+    // UI layer - Existing ViewModels
     viewModel {
         ConstellationSetupViewModel(
             starGenerator = get(),
@@ -216,6 +258,18 @@ val constellationModule = module {
             starGenerator = get(),
             quantizer = get(),
             getIdentitySeed = get()  // Provided by app module
+        )
+    }
+
+    // UI layer - Biometric ViewModels
+    viewModel {
+        AuthMethodSelectionViewModel(
+            biometricManager = get()
+        )
+    }
+    viewModel {
+        BiometricSetupViewModel(
+            biometricManager = get()
         )
     }
 }

@@ -16,7 +16,7 @@ class StarGenerator(
     private val crypto: CryptoProvider
 ) {
     companion object {
-        const val ALGORITHM_VERSION = 3  // Gravity well + landmark system
+        const val ALGORITHM_VERSION = 4  // Fixed edge clipping + gravity well
         const val LANDMARK_COUNT = 8  // One per unique shape - no duplicates!
         const val CONNECTION_DENSITY = 0.12f  // Light connections for visual interest
         const val MAX_SNAP_DISTANCE = 300f  // Max distance in pixels to snap to landmark
@@ -193,7 +193,13 @@ class StarGenerator(
         val selectedShapes = shapeTypes.shuffled(random)
 
         val landmarks = mutableListOf<Landmark>()
-        val padding = 80f * scale
+
+        // Calculate safe padding that prevents edge clipping
+        // Max shape size is 90px (see line 222), most shapes extend full size from center
+        // Use 2.5x multiplier to handle ContentScale.Crop in ConstellationView (line 71)
+        // which can crop 100-200px from edges when aspect ratios don't match
+        val maxShapeSize = 90f * scale
+        val edgePadding = maxShapeSize * 2.5f  // Generous margin for cropping + antialiasing
 
         selectedShapes.forEachIndexed { id, shapeType ->
             // Try to find a position with minimum spacing
@@ -202,8 +208,8 @@ class StarGenerator(
             var attempts = 0
 
             do {
-                x = padding + random.nextFloat() * (width - 2 * padding)
-                y = padding + random.nextFloat() * (height - 2 * padding)
+                x = edgePadding + random.nextFloat() * (width - 2 * edgePadding)
+                y = edgePadding + random.nextFloat() * (height - 2 * edgePadding)
                 attempts++
 
                 val tooClose = landmarks.any { existing ->
@@ -211,7 +217,7 @@ class StarGenerator(
                     val dy = y - existing.y
                     kotlin.math.sqrt((dx * dx + dy * dy).toDouble()) < minSpacing
                 }
-            } while (tooClose && attempts < 50)
+            } while (tooClose && attempts < 100)  // Increased retry attempts for tighter spacing
 
             // Size between 70-90px scaled - larger for 16 landmarks
             val size = (70f + random.nextFloat() * 20f) * scale

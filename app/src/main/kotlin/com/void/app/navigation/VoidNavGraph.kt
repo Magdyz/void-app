@@ -16,6 +16,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import app.voidapp.block.constellation.ui.auth.AuthMethod
+import app.voidapp.block.constellation.ui.auth.AuthMethodSelectionScreen
+import app.voidapp.block.constellation.ui.auth.AuthMethodSelectionViewModel
+import app.voidapp.block.constellation.ui.biometric.BiometricSetupScreen
+import app.voidapp.block.constellation.ui.biometric.BiometricSetupViewModel
 import app.voidapp.block.constellation.ui.setup.ConstellationSetupScreen
 import app.voidapp.block.constellation.ui.setup.ConstellationSetupViewModel
 import app.voidapp.block.constellation.ui.setup.ConstellationSetupState
@@ -54,10 +59,10 @@ fun VoidNavGraph(
         composable(Routes.IDENTITY_GENERATE) {
             IdentityScreen(
                 onComplete = {
-                    // Identity created → Set up constellation authentication
-                    println("VOID_DEBUG: onComplete callback called, navigating to ${Routes.CONSTELLATION_SETUP}")
+                    // Identity created → Choose authentication method
+                    println("VOID_DEBUG: onComplete callback called, navigating to ${Routes.CONSTELLATION_AUTH_METHOD}")
                     try {
-                        navController.navigate(Routes.CONSTELLATION_SETUP)
+                        navController.navigate(Routes.CONSTELLATION_AUTH_METHOD)
                         println("VOID_DEBUG: Navigation call completed successfully")
                     } catch (e: Exception) {
                         println("VOID_DEBUG: Navigation failed with error: ${e.message}")
@@ -72,6 +77,48 @@ fun VoidNavGraph(
         // ═══════════════════════════════════════════════════════════════
         // Constellation Block Routes
         // ═══════════════════════════════════════════════════════════════
+
+        composable(Routes.CONSTELLATION_AUTH_METHOD) {
+            val viewModel: AuthMethodSelectionViewModel = koinViewModel()
+
+            AuthMethodSelectionScreen(
+                onMethodSelected = { method ->
+                    println("VOID_DEBUG: Auth method selected: $method")
+                    when (method) {
+                        AuthMethod.CONSTELLATION -> {
+                            // Go directly to constellation setup
+                            println("VOID_DEBUG: Navigating to ${Routes.CONSTELLATION_SETUP}")
+                            navController.navigate(Routes.CONSTELLATION_SETUP)
+                        }
+                        AuthMethod.BIOMETRIC -> {
+                            // Go to biometric setup first, then constellation backup
+                            println("VOID_DEBUG: Navigating to ${Routes.CONSTELLATION_BIOMETRIC_SETUP}")
+                            navController.navigate(Routes.CONSTELLATION_BIOMETRIC_SETUP)
+                        }
+                    }
+                },
+                onCancel = {
+                    // Can't cancel during onboarding
+                    navController.popBackStack()
+                },
+                viewModel = viewModel
+            )
+        }
+
+        composable(Routes.CONSTELLATION_BIOMETRIC_SETUP) {
+            println("VOID_DEBUG: CONSTELLATION_BIOMETRIC_SETUP composable entered")
+            BiometricSetupScreen(
+                onBiometricEnrolled = {
+                    println("VOID_DEBUG: Biometric enrolled, navigating to ${Routes.CONSTELLATION_SETUP}")
+                    // After biometric setup, go to constellation for backup pattern
+                    navController.navigate(Routes.CONSTELLATION_SETUP)
+                },
+                onCancel = {
+                    // Go back to auth method selection
+                    navController.popBackStack()
+                }
+            )
+        }
 
         composable(Routes.CONSTELLATION_SETUP) {
             println("VOID_DEBUG: CONSTELLATION_SETUP composable entered")

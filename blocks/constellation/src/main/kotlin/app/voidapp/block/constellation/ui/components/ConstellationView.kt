@@ -68,7 +68,7 @@ fun ConstellationView(
             bitmap = constellation.asImageBitmap(),
             contentDescription = "Constellation pattern",
             modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
+            contentScale = ContentScale.FillBounds  // Fill without cropping - prevents edge clipping
         )
 
         // Draw tap indicators (unless privacy mode)

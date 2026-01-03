@@ -26,9 +26,20 @@ class ConstellationUnlockViewModel(
     private val _state = MutableStateFlow<ConstellationUnlockState>(ConstellationUnlockState.Loading)
     val state: StateFlow<ConstellationUnlockState> = _state.asStateFlow()
 
+    private val _biometricEnabled = MutableStateFlow(false)
+    val biometricEnabled: StateFlow<Boolean> = _biometricEnabled.asStateFlow()
+
     private var storedPatternLength: Int = ConstellationSecurityManager.MIN_LANDMARKS  // Actual stored pattern length
     private var isV2Pattern: Boolean = false
     private var isInitialized: Boolean = false  // Prevent multiple initializations
+
+    init {
+        // Check if biometric is enabled
+        viewModelScope.launch {
+            _biometricEnabled.value = securityManager.isBiometricEnabled()
+            println("VOID_DEBUG: UnlockVM - Biometric enabled: ${_biometricEnabled.value}")
+        }
+    }
 
     fun initialize(width: Int = 1080, height: Int = 1920) {
         // Prevent re-initialization if already initialized and in Ready/Success state
@@ -164,6 +175,16 @@ class ConstellationUnlockViewModel(
                 is ConstellationResult.InvalidPattern -> {
                     ConstellationUnlockState.Error("Invalid pattern")
                 }
+                is ConstellationResult.BiometricCancelled -> {
+                    // Should not happen in pattern unlock, but handle for exhaustiveness
+                    ConstellationUnlockState.Ready(
+                        constellation = currentConstellation ?: return@launch,
+                        landmarks = currentLandmarks ?: emptyList(),
+                        tappedStars = emptyList(),
+                        attemptsRemaining = securityManager.getFailedAttempts(),
+                        isV2 = currentIsV2
+                    )
+                }
             }
         }
     }
@@ -182,6 +203,49 @@ class ConstellationUnlockViewModel(
                 attemptsRemaining = currentState.attemptsRemaining,
                 isV2 = currentState.isV2
             )
+        }
+    }
+
+    /**
+     * Trigger biometric authentication for unlock.
+     */
+    fun triggerBiometric(activity: androidx.fragment.app.FragmentActivity) {
+        viewModelScope.launch {
+            println("VOID_DEBUG: UnlockVM - Triggering biometric authentication")
+
+            when (val result = securityManager.unlockWithBiometric(activity)) {
+                is ConstellationResult.Success -> {
+                    println("VOID_DEBUG: UnlockVM - Biometric unlock successful")
+                    _state.value = ConstellationUnlockState.Success
+                }
+                is ConstellationResult.Failure -> {
+                    println("VOID_DEBUG: UnlockVM - Biometric unlock failed, attempts remaining: ${result.attemptsRemaining}")
+                    // Show failure and allow pattern fallback
+                    val currentState = _state.value
+                    if (currentState is ConstellationUnlockState.Ready) {
+                        _state.value = ConstellationUnlockState.Failure(
+                            constellation = currentState.constellation,
+                            landmarks = currentState.landmarks,
+                            attemptsRemaining = result.attemptsRemaining,
+                            message = "Biometric failed. ${result.attemptsRemaining} attempts remaining",
+                            isV2 = currentState.isV2
+                        )
+                    }
+                }
+                is ConstellationResult.LockedOut -> {
+                    println("VOID_DEBUG: UnlockVM - Account locked out")
+                    val lockoutEnd = securityManager.getLockoutEndTime()
+                    _state.value = ConstellationUnlockState.LockedOut(lockoutEnd)
+                }
+                is ConstellationResult.BiometricCancelled -> {
+                    println("VOID_DEBUG: UnlockVM - Biometric cancelled, staying in current state")
+                    // Don't change state - user can try pattern or biometric again
+                }
+                is ConstellationResult.InvalidPattern -> {
+                    println("VOID_DEBUG: UnlockVM - Biometric invalid/not setup")
+                    _state.value = ConstellationUnlockState.Error("Biometric not available")
+                }
+            }
         }
     }
 }

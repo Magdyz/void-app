@@ -137,6 +137,8 @@ object Routes {
     const val RHYTHM_RECOVERY = "rhythm/recovery"
 
     // Constellation
+    const val CONSTELLATION_AUTH_METHOD = "constellation/auth_method"
+    const val CONSTELLATION_BIOMETRIC_SETUP = "constellation/biometric_setup"
     const val CONSTELLATION_SETUP = "constellation/setup"
     const val CONSTELLATION_CONFIRM = "constellation/confirm"
     const val CONSTELLATION_UNLOCK = "constellation/unlock"

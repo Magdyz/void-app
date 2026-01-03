@@ -83,6 +83,7 @@ sealed class ConstellationResult {
     data class Failure(val attemptsRemaining: Int) : ConstellationResult()
     object LockedOut : ConstellationResult()
     object InvalidPattern : ConstellationResult()
+    object BiometricCancelled : ConstellationResult()  // User cancelled biometric prompt
 }
 
 /**

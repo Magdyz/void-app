@@ -4,7 +4,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +13,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
@@ -29,8 +29,9 @@ import org.koin.android.ext.android.inject
 /**
  * Main activity for VOID app.
  * Single Activity architecture - all screens are Composables.
+ * Extends FragmentActivity to support BiometricPrompt.
  */
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     // Inject dependencies
     private val appStateManager: AppStateManager by inject()

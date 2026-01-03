@@ -12,13 +12,15 @@ import kotlinx.serialization.json.Json
 /**
  * Manages constellation lock security operations.
  * Follows RhythmSecurityManager pattern for consistency.
+ * Now supports biometric unlock as alternative to constellation pattern.
  */
 class ConstellationSecurityManager(
     private val keystoreManager: KeystoreManager,
     private val storage: SecureStorage,
     private val crypto: CryptoProvider,
     private val matcher: ConstellationMatcher,
-    private val getIdentitySeed: suspend () -> ByteArray?
+    private val getIdentitySeed: suspend () -> ByteArray?,
+    private val biometricManager: BiometricAuthManager? = null  // Optional biometric support
 ) {
     companion object {
         private const val KEY_ALIAS = "constellation_master_key"
@@ -506,6 +508,82 @@ class ConstellationSecurityManager(
             resetFailedAttempts()
             resetTotalAttempts()
             storage.delete(KEY_LOCKOUT_END_TIME)
+        } finally {
+            mutex.unlock()
+        }
+    }
+
+    // ========== BIOMETRIC UNLOCK METHODS ==========
+
+    /**
+     * Check if biometric unlock is enabled for this user.
+     */
+    suspend fun isBiometricEnabled(): Boolean {
+        return biometricManager?.isBiometricEnabled() ?: false
+    }
+
+    /**
+     * Unlock using biometric authentication.
+     * Alternative to constellation pattern unlock.
+     */
+    suspend fun unlockWithBiometric(
+        activity: androidx.fragment.app.FragmentActivity
+    ): ConstellationResult {
+        if (biometricManager == null) {
+            return ConstellationResult.InvalidPattern
+        }
+
+        mutex.lock()
+        try {
+            // Check lockout (same rules apply)
+            val lockoutEnd = storage.getString(KEY_LOCKOUT_END_TIME)?.toLongOrNull() ?: 0L
+            if (System.currentTimeMillis() < lockoutEnd) {
+                return ConstellationResult.LockedOut
+            }
+
+            // Attempt biometric authentication
+            when (val result = biometricManager.authenticateWithBiometric(activity)) {
+                is BiometricAuthResult.Success -> {
+                    // Success - reset counters and get identity seed
+                    resetFailedAttempts()
+
+                    val identitySeed = getIdentitySeed()
+                    val seedHash = identitySeed?.let { crypto.hash(it) }
+                        ?: return ConstellationResult.InvalidPattern
+
+                    return ConstellationResult.Success(seedHash)
+                }
+                BiometricAuthResult.Cancelled -> {
+                    // User cancelled - don't count as failed attempt
+                    return ConstellationResult.BiometricCancelled
+                }
+                BiometricAuthResult.LockedOut -> {
+                    return ConstellationResult.LockedOut
+                }
+                is BiometricAuthResult.Failed -> {
+                    // Biometric failed - increment attempts
+                    val failedAttempts = incrementFailedAttempts()
+                    val totalAttempts = incrementTotalAttempts()
+
+                    // Check for wipe threshold
+                    if (totalAttempts >= MAX_TOTAL_ATTEMPTS_BEFORE_WIPE) {
+                        panicWipe()
+                        return ConstellationResult.LockedOut
+                    }
+
+                    // Check for lockout
+                    if (failedAttempts >= MAX_ATTEMPTS_BEFORE_LOCKOUT) {
+                        val lockoutEndTime = System.currentTimeMillis() + LOCKOUT_DURATION_MS
+                        storage.putString(KEY_LOCKOUT_END_TIME, lockoutEndTime.toString())
+                        return ConstellationResult.LockedOut
+                    }
+
+                    return ConstellationResult.Failure(MAX_ATTEMPTS_BEFORE_LOCKOUT - failedAttempts)
+                }
+                BiometricAuthResult.NotEnabled -> {
+                    return ConstellationResult.InvalidPattern
+                }
+            }
         } finally {
             mutex.unlock()
         }
