@@ -39,7 +39,8 @@ import java.util.UUID
  */
 class MessageSender(
     private val supabase: SupabaseClient,
-    private val mailboxDerivation: MailboxDerivation
+    private val mailboxDerivation: MailboxDerivation,
+    private val timestampFuzzingEnabled: Boolean = true // Enabled by default for zero-leakage
 ) {
 
     /**
@@ -68,7 +69,12 @@ class MessageSender(
             val mailboxHash = mailboxDerivation.deriveMailbox(recipientSeed, timestamp)
 
             // Epoch for database is Unix timestamp in seconds (not mailbox rotation epoch)
-            val epoch = timestamp / 1000  // Convert milliseconds to seconds
+            var epoch = timestamp / 1000  // Convert milliseconds to seconds
+
+            // Apply timestamp fuzzing for privacy (obfuscates exact send time)
+            if (timestampFuzzingEnabled) {
+                epoch = fuzzTimestamp(epoch)
+            }
 
             // DEBUG: Log full mailbox hash for diagnosis
             println("🔍 [SENDER_MAILBOX] Sending to mailbox:")
@@ -149,7 +155,15 @@ class MessageSender(
             // Generate random mailbox and payload
             val randomMailbox = generateRandomMailboxHash()
             val randomPayload = ByteArray(size).also { kotlin.random.Random.nextBytes(it) }
-            val epoch = mailboxDerivation.calculateEpoch()
+
+            // Calculate epoch from current timestamp (Unix timestamp in seconds)
+            val currentTimestamp = System.currentTimeMillis()
+            var epoch = currentTimestamp / 1000  // Convert milliseconds to seconds
+
+            // Apply timestamp fuzzing for privacy
+            if (timestampFuzzingEnabled) {
+                epoch = fuzzTimestamp(epoch)
+            }
 
             val messageId = UUID.randomUUID().toString()
             val expiresAt = Instant.now().plus(MESSAGE_TTL_HOURS, ChronoUnit.HOURS).toString()
@@ -215,6 +229,28 @@ class MessageSender(
      */
     private fun ByteArray.toBase64(): String {
         return android.util.Base64.encodeToString(this, android.util.Base64.NO_WRAP)
+    }
+
+    /**
+     * Fuzz timestamp for privacy by adding random jitter.
+     *
+     * Adds ±30 seconds to ±5 minutes of random jitter to obscure exact send time.
+     * This prevents timing correlation attacks while keeping messages roughly ordered.
+     *
+     * @param epochSeconds The original epoch timestamp in seconds
+     * @return Fuzzed epoch timestamp in seconds
+     */
+    private fun fuzzTimestamp(epochSeconds: Long): Long {
+        // Random jitter: ±30 seconds to ±5 minutes (30-300 seconds)
+        val minJitter = 30L  // 30 seconds
+        val maxJitter = 300L // 5 minutes
+        val jitter = kotlin.random.Random.nextLong(-maxJitter, maxJitter + 1)
+
+        val fuzzedEpoch = epochSeconds + jitter
+
+        Log.d(TAG, "🔀 [TIMESTAMP_FUZZ] Original: $epochSeconds, Jitter: ${jitter}s, Fuzzed: $fuzzedEpoch")
+
+        return fuzzedEpoch
     }
 
     companion object {

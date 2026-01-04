@@ -112,6 +112,7 @@ class MessagingBlock : BlockManifest {
                 messageRepository = get(),
                 stateManager = get(),
                 config = config,
+                messageSender = get(),
                 scope = kotlinx.coroutines.CoroutineScope(
                     kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
                 )
@@ -219,6 +220,7 @@ val messagingModule = module {
             messageRepository = get(),
             stateManager = get(),
             config = config,
+            messageSender = get(),
             scope = kotlinx.coroutines.CoroutineScope(
                 kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
             )

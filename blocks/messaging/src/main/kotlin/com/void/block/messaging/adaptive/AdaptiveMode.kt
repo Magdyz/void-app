@@ -224,8 +224,9 @@ data class InstantVoidConfig(
 
     /**
      * Enable cover traffic (decoy messages).
+     * Enabled by default for zero-leakage security.
      */
-    val coverTrafficEnabled: Boolean = false, // Will enable in Phase 3
+    val coverTrafficEnabled: Boolean = true,
 
     /**
      * Debug mode: Extra logging for troubleshooting.
@@ -239,7 +240,7 @@ data class InstantVoidConfig(
         val DEFAULT = InstantVoidConfig(
             enabled = false, // Disabled by default
             enableWebSocket = false,
-            coverTrafficEnabled = false
+            coverTrafficEnabled = true // Enabled for zero-leakage
         )
 
         /**

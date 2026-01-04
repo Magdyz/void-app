@@ -34,6 +34,7 @@ class VoidPollingEngine(
     private val messageRepository: MessageRepository,
     private val stateManager: ConversationStateManager,
     private val config: InstantVoidConfig,
+    private val messageSender: com.void.slate.network.supabase.MessageSender? = null,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) {
     companion object {
@@ -126,8 +127,26 @@ class VoidPollingEngine(
             val duration = System.currentTimeMillis() - startTime
             Log.d(TAG, "✅ [SYNC_COMPLETE] messages=$newMessageCount, duration=${duration}ms")
 
+            // Send cover traffic (decoy messages) if enabled
+            var decoysSent = 0
+            if (config.coverTrafficEnabled && messageSender != null) {
+                val decoyCount = mode.getDecoyCount()
+                Log.d(TAG, "🎭 [COVER_TRAFFIC] Sending $decoyCount decoy messages (mode=$mode)")
+
+                repeat(decoyCount) {
+                    try {
+                        messageSender.sendDecoyMessage()
+                        decoysSent++
+                    } catch (e: Exception) {
+                        Log.w(TAG, "⚠️  Decoy send failed (non-critical): ${e.message}")
+                    }
+                }
+
+                Log.d(TAG, "🎭 [COVER_TRAFFIC] Sent $decoysSent/$decoyCount decoys")
+            }
+
             // Update statistics
-            stats = stats.recordSync(mode, decoysCount = 0) // TODO: Add decoy tracking
+            stats = stats.recordSync(mode, decoysCount = decoysSent)
 
         } catch (e: Exception) {
             Log.e(TAG, "❌ [SYNC_FAILED] ${e.message}", e)
