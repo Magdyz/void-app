@@ -248,6 +248,21 @@ class ConstellationUnlockViewModel(
             }
         }
     }
+
+    override fun onCleared() {
+        super.onCleared()
+        // MEMORY: Recycle bitmap when ViewModel is destroyed to prevent memory leaks
+        val currentState = _state.value
+        when (currentState) {
+            is ConstellationUnlockState.Ready -> {
+                currentState.constellation.recycle()
+            }
+            is ConstellationUnlockState.Failure -> {
+                currentState.constellation.recycle()
+            }
+            else -> { /* No bitmap to recycle */ }
+        }
+    }
 }
 
 sealed class ConstellationUnlockState {

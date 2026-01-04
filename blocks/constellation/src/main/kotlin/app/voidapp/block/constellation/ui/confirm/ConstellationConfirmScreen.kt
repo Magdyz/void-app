@@ -240,8 +240,8 @@ private fun ConstellationConfirmContent(
                     .align(Alignment.TopCenter)
                     .padding(top = 160.dp, start = 24.dp, end = 24.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
                 )
             ) {
                 Text(

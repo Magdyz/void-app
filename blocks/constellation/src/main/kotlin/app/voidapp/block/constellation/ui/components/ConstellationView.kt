@@ -39,6 +39,11 @@ fun ConstellationView(
     val haptic = LocalHapticFeedback.current
     var screenSize by remember { mutableStateOf(IntSize.Zero) }
 
+    // MEMORY: Remember ImageBitmap to avoid recreating on recomposition
+    val imageBitmap = remember(constellation) {
+        constellation.asImageBitmap()
+    }
+
     // FLAG_SECURE to prevent screenshots
     DisposableEffect(Unit) {
         val window = (context as? Activity)?.window
@@ -65,7 +70,7 @@ fun ConstellationView(
     ) {
         // Background constellation
         Image(
-            bitmap = constellation.asImageBitmap(),
+            bitmap = imageBitmap,
             contentDescription = "Constellation pattern",
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.FillBounds  // Fill without cropping - prevents edge clipping

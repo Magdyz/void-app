@@ -6,7 +6,82 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import com.void.slate.crypto.CryptoProvider
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.random.Random
+
+/**
+ * Object pool for Paint instances to reduce GC pressure.
+ * Thread-safe singleton pool for reusing Paint objects.
+ */
+private object PaintPool {
+    private val fillPaints = ArrayDeque<Paint>(3)
+    private val strokePaints = ArrayDeque<Paint>(3)
+    private val linePaints = ArrayDeque<Paint>(3)
+    private val mutex = Mutex()
+
+    suspend fun acquireFillPaint(): Paint = mutex.withLock {
+        fillPaints.removeFirstOrNull() ?: Paint().apply {
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+    }
+
+    suspend fun releaseFillPaint(paint: Paint) = mutex.withLock {
+        paint.reset()
+        paint.style = Paint.Style.FILL
+        paint.isAntiAlias = true
+        if (fillPaints.size < 3) fillPaints.addLast(paint)
+    }
+
+    suspend fun acquireStrokePaint(): Paint = mutex.withLock {
+        strokePaints.removeFirstOrNull() ?: Paint().apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+            isAntiAlias = true
+        }
+    }
+
+    suspend fun releaseStrokePaint(paint: Paint) = mutex.withLock {
+        paint.reset()
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 3f
+        paint.isAntiAlias = true
+        if (strokePaints.size < 3) strokePaints.addLast(paint)
+    }
+
+    suspend fun acquireLinePaint(): Paint = mutex.withLock {
+        linePaints.removeFirstOrNull() ?: Paint().apply {
+            style = Paint.Style.STROKE
+            isAntiAlias = true
+        }
+    }
+
+    suspend fun releaseLinePaint(paint: Paint) = mutex.withLock {
+        paint.reset()
+        paint.style = Paint.Style.STROKE
+        paint.isAntiAlias = true
+        if (linePaints.size < 3) linePaints.addLast(paint)
+    }
+}
+
+/**
+ * Object pool for Path instances (one per landmark shape).
+ * Thread-safe singleton pool for reusing Path objects.
+ */
+private object PathPool {
+    private val paths = ArrayDeque<Path>(8)
+    private val mutex = Mutex()
+
+    suspend fun acquirePath(): Path = mutex.withLock {
+        paths.removeFirstOrNull() ?: Path()
+    }
+
+    suspend fun releasePath(path: Path) = mutex.withLock {
+        path.reset()
+        if (paths.size < 8) paths.addLast(path)
+    }
+}
 
 /**
  * Generates deterministic constellation patterns from identity seeds.
@@ -131,31 +206,33 @@ class StarGenerator(
 
     /**
      * Draw connection lines between nodes.
+     * PERFORMANCE: Uses object pool to reduce GC pressure.
      */
-    private fun drawConnections(
+    private suspend fun drawConnections(
         canvas: Canvas,
         nodes: List<Pair<Float, Float>>,
         random: Random,
         width: Int
     ) {
-        val linePaint = Paint().apply {
-            color = Color.parseColor("#1a1a2e")
-            strokeWidth = 1.5f * (width / 1080f)
-            style = Paint.Style.STROKE
-            alpha = 60
-            isAntiAlias = true
-        }
+        val linePaint = PaintPool.acquireLinePaint()
+        try {
+            linePaint.color = Color.parseColor("#1a1a2e")
+            linePaint.strokeWidth = 1.5f * (width / 1080f)
+            linePaint.alpha = 60
 
-        nodes.forEachIndexed { i, _ ->
-            nodes.drop(i + 1).forEachIndexed { j, _ ->
-                if (random.nextFloat() < CONNECTION_DENSITY) {
-                    canvas.drawLine(
-                        nodes[i].first, nodes[i].second,
-                        nodes[i + j + 1].first, nodes[i + j + 1].second,
-                        linePaint
-                    )
+            nodes.forEachIndexed { i, _ ->
+                nodes.drop(i + 1).forEachIndexed { j, _ ->
+                    if (random.nextFloat() < CONNECTION_DENSITY) {
+                        canvas.drawLine(
+                            nodes[i].first, nodes[i].second,
+                            nodes[i + j + 1].first, nodes[i + j + 1].second,
+                            linePaint
+                        )
+                    }
                 }
             }
+        } finally {
+            PaintPool.releaseLinePaint(linePaint)
         }
     }
 
@@ -246,105 +323,121 @@ class StarGenerator(
 
     /**
      * Draw landmarks (distinct shapes).
+     * PERFORMANCE: Uses object pools to reduce GC pressure.
      */
-    private fun drawLandmarks(canvas: Canvas, landmarks: List<Landmark>) {
-        val fillPaint = Paint().apply {
-            style = Paint.Style.FILL
-            isAntiAlias = true
-        }
+    private suspend fun drawLandmarks(canvas: Canvas, landmarks: List<Landmark>) {
+        val fillPaint = PaintPool.acquireFillPaint()
+        val strokePaint = PaintPool.acquireStrokePaint()
 
-        val strokePaint = Paint().apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 3f
-            isAntiAlias = true
-        }
+        try {
+            landmarks.forEach { landmark ->
+                fillPaint.color = landmark.color
+                strokePaint.color = landmark.color
 
-        landmarks.forEach { landmark ->
-            fillPaint.color = landmark.color
-            strokePaint.color = landmark.color
-
-            when (landmark.shape) {
-                LandmarkShape.TRIANGLE -> drawTriangle(canvas, landmark, fillPaint)
-                LandmarkShape.HEXAGON -> drawHexagon(canvas, landmark, fillPaint)
-                LandmarkShape.STAR -> drawStar(canvas, landmark, fillPaint)
-                LandmarkShape.CROSS -> drawCross(canvas, landmark, fillPaint)
-                LandmarkShape.DIAMOND -> drawDiamond(canvas, landmark, fillPaint)
-                LandmarkShape.RING -> drawRing(canvas, landmark, strokePaint)
-                LandmarkShape.SQUARE -> drawSquare(canvas, landmark, fillPaint)
-                LandmarkShape.PENTAGON -> drawPentagon(canvas, landmark, fillPaint)
+                when (landmark.shape) {
+                    LandmarkShape.TRIANGLE -> drawTriangle(canvas, landmark, fillPaint)
+                    LandmarkShape.HEXAGON -> drawHexagon(canvas, landmark, fillPaint)
+                    LandmarkShape.STAR -> drawStar(canvas, landmark, fillPaint)
+                    LandmarkShape.CROSS -> drawCross(canvas, landmark, fillPaint)
+                    LandmarkShape.DIAMOND -> drawDiamond(canvas, landmark, fillPaint)
+                    LandmarkShape.RING -> drawRing(canvas, landmark, strokePaint)
+                    LandmarkShape.SQUARE -> drawSquare(canvas, landmark, fillPaint)
+                    LandmarkShape.PENTAGON -> drawPentagon(canvas, landmark, fillPaint)
+                }
             }
+        } finally {
+            PaintPool.releaseFillPaint(fillPaint)
+            PaintPool.releaseStrokePaint(strokePaint)
         }
     }
 
-    private fun drawTriangle(canvas: Canvas, landmark: Landmark, paint: Paint) {
-        val path = Path().apply {
-            moveTo(landmark.x, landmark.y - landmark.size)
-            lineTo(landmark.x + landmark.size * 0.866f, landmark.y + landmark.size * 0.5f)
-            lineTo(landmark.x - landmark.size * 0.866f, landmark.y + landmark.size * 0.5f)
-            close()
+    private suspend fun drawTriangle(canvas: Canvas, landmark: Landmark, paint: Paint) {
+        val path = PathPool.acquirePath()
+        try {
+            path.moveTo(landmark.x, landmark.y - landmark.size)
+            path.lineTo(landmark.x + landmark.size * 0.866f, landmark.y + landmark.size * 0.5f)
+            path.lineTo(landmark.x - landmark.size * 0.866f, landmark.y + landmark.size * 0.5f)
+            path.close()
+            canvas.drawPath(path, paint)
+        } finally {
+            PathPool.releasePath(path)
         }
-        canvas.drawPath(path, paint)
     }
 
-    private fun drawHexagon(canvas: Canvas, landmark: Landmark, paint: Paint) {
-        val path = Path()
-        val angles = 6
-        for (i in 0 until angles) {
-            val angle = (i * 60 - 30) * Math.PI / 180
-            val x = landmark.x + landmark.size * kotlin.math.cos(angle).toFloat()
-            val y = landmark.y + landmark.size * kotlin.math.sin(angle).toFloat()
-            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+    private suspend fun drawHexagon(canvas: Canvas, landmark: Landmark, paint: Paint) {
+        val path = PathPool.acquirePath()
+        try {
+            val angles = 6
+            for (i in 0 until angles) {
+                val angle = (i * 60 - 30) * Math.PI / 180
+                val x = landmark.x + landmark.size * kotlin.math.cos(angle).toFloat()
+                val y = landmark.y + landmark.size * kotlin.math.sin(angle).toFloat()
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            path.close()
+            canvas.drawPath(path, paint)
+        } finally {
+            PathPool.releasePath(path)
         }
-        path.close()
-        canvas.drawPath(path, paint)
     }
 
-    private fun drawStar(canvas: Canvas, landmark: Landmark, paint: Paint) {
-        val path = Path()
-        val points = 5
-        val outerRadius = landmark.size
-        val innerRadius = landmark.size * 0.4f
+    private suspend fun drawStar(canvas: Canvas, landmark: Landmark, paint: Paint) {
+        val path = PathPool.acquirePath()
+        try {
+            val points = 5
+            val outerRadius = landmark.size
+            val innerRadius = landmark.size * 0.4f
 
-        for (i in 0 until points * 2) {
-            val radius = if (i % 2 == 0) outerRadius else innerRadius
-            val angle = (i * 36 - 90) * Math.PI / 180
-            val x = landmark.x + radius * kotlin.math.cos(angle).toFloat()
-            val y = landmark.y + radius * kotlin.math.sin(angle).toFloat()
-            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            for (i in 0 until points * 2) {
+                val radius = if (i % 2 == 0) outerRadius else innerRadius
+                val angle = (i * 36 - 90) * Math.PI / 180
+                val x = landmark.x + radius * kotlin.math.cos(angle).toFloat()
+                val y = landmark.y + radius * kotlin.math.sin(angle).toFloat()
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            path.close()
+            canvas.drawPath(path, paint)
+        } finally {
+            PathPool.releasePath(path)
         }
-        path.close()
-        canvas.drawPath(path, paint)
     }
 
-    private fun drawCross(canvas: Canvas, landmark: Landmark, paint: Paint) {
-        val thickness = landmark.size * 0.3f
-        val path = Path().apply {
+    private suspend fun drawCross(canvas: Canvas, landmark: Landmark, paint: Paint) {
+        val path = PathPool.acquirePath()
+        try {
+            val thickness = landmark.size * 0.3f
             // Horizontal bar
-            moveTo(landmark.x - landmark.size, landmark.y - thickness)
-            lineTo(landmark.x + landmark.size, landmark.y - thickness)
-            lineTo(landmark.x + landmark.size, landmark.y + thickness)
-            lineTo(landmark.x - landmark.size, landmark.y + thickness)
-            close()
+            path.moveTo(landmark.x - landmark.size, landmark.y - thickness)
+            path.lineTo(landmark.x + landmark.size, landmark.y - thickness)
+            path.lineTo(landmark.x + landmark.size, landmark.y + thickness)
+            path.lineTo(landmark.x - landmark.size, landmark.y + thickness)
+            path.close()
 
             // Vertical bar
-            moveTo(landmark.x - thickness, landmark.y - landmark.size)
-            lineTo(landmark.x + thickness, landmark.y - landmark.size)
-            lineTo(landmark.x + thickness, landmark.y + landmark.size)
-            lineTo(landmark.x - thickness, landmark.y + landmark.size)
-            close()
+            path.moveTo(landmark.x - thickness, landmark.y - landmark.size)
+            path.lineTo(landmark.x + thickness, landmark.y - landmark.size)
+            path.lineTo(landmark.x + thickness, landmark.y + landmark.size)
+            path.lineTo(landmark.x - thickness, landmark.y + landmark.size)
+            path.close()
+
+            canvas.drawPath(path, paint)
+        } finally {
+            PathPool.releasePath(path)
         }
-        canvas.drawPath(path, paint)
     }
 
-    private fun drawDiamond(canvas: Canvas, landmark: Landmark, paint: Paint) {
-        val path = Path().apply {
-            moveTo(landmark.x, landmark.y - landmark.size)
-            lineTo(landmark.x + landmark.size, landmark.y)
-            lineTo(landmark.x, landmark.y + landmark.size)
-            lineTo(landmark.x - landmark.size, landmark.y)
-            close()
+    private suspend fun drawDiamond(canvas: Canvas, landmark: Landmark, paint: Paint) {
+        val path = PathPool.acquirePath()
+        try {
+            path.moveTo(landmark.x, landmark.y - landmark.size)
+            path.lineTo(landmark.x + landmark.size, landmark.y)
+            path.lineTo(landmark.x, landmark.y + landmark.size)
+            path.lineTo(landmark.x - landmark.size, landmark.y)
+            path.close()
+            canvas.drawPath(path, paint)
+        } finally {
+            PathPool.releasePath(path)
         }
-        canvas.drawPath(path, paint)
     }
 
     private fun drawRing(canvas: Canvas, landmark: Landmark, paint: Paint) {
@@ -362,17 +455,21 @@ class StarGenerator(
         )
     }
 
-    private fun drawPentagon(canvas: Canvas, landmark: Landmark, paint: Paint) {
-        val path = Path()
-        val points = 5
-        for (i in 0 until points) {
-            val angle = (i * 72 - 90) * Math.PI / 180
-            val x = landmark.x + landmark.size * kotlin.math.cos(angle).toFloat()
-            val y = landmark.y + landmark.size * kotlin.math.sin(angle).toFloat()
-            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+    private suspend fun drawPentagon(canvas: Canvas, landmark: Landmark, paint: Paint) {
+        val path = PathPool.acquirePath()
+        try {
+            val points = 5
+            for (i in 0 until points) {
+                val angle = (i * 72 - 90) * Math.PI / 180
+                val x = landmark.x + landmark.size * kotlin.math.cos(angle).toFloat()
+                val y = landmark.y + landmark.size * kotlin.math.sin(angle).toFloat()
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            path.close()
+            canvas.drawPath(path, paint)
+        } finally {
+            PathPool.releasePath(path)
         }
-        path.close()
-        canvas.drawPath(path, paint)
     }
 
 }

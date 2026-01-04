@@ -28,9 +28,8 @@ class ConstellationSetupViewModel(
 
     private var generationMetadata: StarGenerator.GenerationMetadata? = null
 
-    init {
-        generateConstellation()
-    }
+    // PERFORMANCE: No automatic generation in init - wait for actual screen dimensions
+    // This eliminates double generation (init + LaunchedEffect) that caused ~30 frame drops
 
     fun generateConstellation(width: Int = 1080, height: Int = 1920) {
         viewModelScope.launch {
@@ -133,6 +132,21 @@ class ConstellationSetupViewModel(
 
     fun getVerificationHash(): String? = generationMetadata?.verificationHash
     fun getAlgorithmVersion(): Int = generationMetadata?.algorithmVersion ?: StarGenerator.ALGORITHM_VERSION
+
+    override fun onCleared() {
+        super.onCleared()
+        // MEMORY: Recycle bitmap when ViewModel is destroyed to prevent memory leaks
+        val currentState = _state.value
+        when (currentState) {
+            is ConstellationSetupState.Ready -> {
+                currentState.constellation.recycle()
+            }
+            is ConstellationSetupState.PatternCreated -> {
+                currentState.constellation.recycle()
+            }
+            else -> { /* No bitmap to recycle */ }
+        }
+    }
 }
 
 sealed class ConstellationSetupState {
