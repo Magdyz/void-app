@@ -8,6 +8,7 @@ import com.void.slate.network.impl.KtorNetworkClient
 import com.void.slate.network.impl.RetryPolicy
 import com.void.slate.network.mailbox.MailboxDerivation
 import com.void.slate.network.push.PushRegistration
+import com.void.slate.network.supabase.FetchMailboxClient
 import com.void.slate.network.supabase.MessageFetcher
 import com.void.slate.network.supabase.MessageSender
 import com.void.slate.network.supabase.SupabaseConfig
@@ -158,6 +159,16 @@ val networkModule = module {
         MessageFetcher(
             supabase = get(),
             tokenManager = get()
+        )
+    }
+
+    single {
+        val supabaseConfig = get<SupabaseConfig>()
+        FetchMailboxClient(
+            httpClient = get(),
+            tokenManager = get(),
+            supabaseUrl = supabaseConfig.url,
+            supabaseAnonKey = supabaseConfig.anonKey
         )
     }
 

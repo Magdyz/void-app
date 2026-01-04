@@ -8,6 +8,7 @@ import com.void.block.messaging.domain.MessageContent
 import com.void.block.messaging.domain.MessageDirection
 import com.void.block.messaging.domain.MessageDraft
 import com.void.block.messaging.domain.MessageStatus
+import com.void.slate.network.supabase.FetchMailboxClient
 import com.void.slate.network.supabase.MessageSender
 import com.void.slate.network.supabase.MessageFetcher
 import com.void.slate.network.supabase.MessageRecord
@@ -27,10 +28,12 @@ import kotlinx.serialization.json.Json
 class MessageRepository(
     private val storage: SecureStorage,
     private val messageSender: MessageSender? = null,  // Optional for now, null = offline mode
-    private val messageFetcher: MessageFetcher? = null,  // Optional for now, null = offline mode
+    private val messageFetcher: MessageFetcher? = null,  // Optional for now, null = offline mode (legacy)
+    private val fetchMailboxClient: FetchMailboxClient? = null,  // Optional - Poisson Ghost protocol (preferred)
     private val mailboxDerivation: MailboxDerivation? = null,  // Optional for fetching
     private val encryptionService: MessageEncryptionService? = null,  // Optional - null = no encryption
-    private val publicKeyToContactId: (suspend (String) -> String?)? = null  // Optional - converts public key hex to contact UUID
+    private val publicKeyToContactId: (suspend (String) -> String?)? = null,  // Optional - converts public key hex to contact UUID
+    private val conversationStateManager: com.void.block.messaging.adaptive.ConversationStateManager? = null  // Optional - for INSTANT-VOID adaptive mode
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -101,6 +104,9 @@ class MessageRepository(
         messageSender?.let { sender ->
             sendMessageViaNetwork(message, sender)
         }
+
+        // 3. Update conversation state for INSTANT-VOID adaptive mode (if enabled)
+        conversationStateManager?.updateConversation(message.conversationId, message.timestamp)
     }
 
     /**
@@ -232,6 +238,9 @@ class MessageRepository(
             MutableStateFlow(emptyList())
         }
         flow.value = flow.value + message
+
+        // Update conversation state for INSTANT-VOID adaptive mode (if enabled)
+        conversationStateManager?.updateConversation(message.conversationId, message.timestamp)
     }
 
     /**
@@ -484,7 +493,12 @@ class MessageRepository(
      * Returns the number of new messages received.
      */
     suspend fun syncMessages(since: Long? = null): Int {
-        val fetcher = messageFetcher ?: return 0
+        // Check for fetcher (either Poisson Ghost or legacy)
+        if (fetchMailboxClient == null && messageFetcher == null) {
+            Log.w(TAG, "⚠️ [SYNC] No message fetcher available")
+            return 0
+        }
+
         val mailbox = mailboxDerivation ?: return 0
 
         // TODO: Get user's own identity seed
@@ -516,40 +530,91 @@ class MessageRepository(
         Log.d(TAG, "🔍   Timestamp: $timestamp ms")
         Log.d(TAG, "🔍   DB Query Epoch: $dbEpoch sec")
 
-        fetcher.fetchMessages(userIdentity.seed, mailboxHashes, dbEpoch)
-            .onSuccess { messageRecords ->
-                Log.d(TAG, "📥 [SYNC] Received ${messageRecords.size} messages from Supabase")
+        // Fetch messages using Poisson Ghost protocol (preferred) or legacy fetcher
+        val allMessageRecords = if (fetchMailboxClient != null) {
+            Log.d(TAG, "📥 [POISSON_GHOST] Using 4KB padded fetch protocol")
+            // Poisson Ghost: Fetch each mailbox with fetch-until-empty loop
+            // Keep fetching until we get a noise response (empty mailbox)
+            val records = mutableListOf<MessageRecord>()
+            for (mailboxHash in mailboxHashes) {
+                var fetchCount = 0
+                var keepFetching = true
+                val MAX_BATCHES = 100 // Safety limit to prevent infinite loops
 
-                val processedIds = mutableListOf<String>()
+                while (keepFetching && fetchCount < MAX_BATCHES) {
+                    fetchCount++
+                    fetchMailboxClient.fetchMessages(userIdentity.seed, mailboxHash, dbEpoch)
+                        .onSuccess { mailboxRecords ->
+                            if (mailboxRecords.isNotEmpty()) {
+                                records.addAll(mailboxRecords)
+                                Log.d(TAG, "📥 [FETCH_LOOP] Batch $fetchCount: ${mailboxRecords.size} messages from ${mailboxHash.take(8)}...")
 
-                messageRecords.forEach { record ->
-                    val message = parseSupabaseMessage(record)
-                    if (message != null) {
-                        receiveMessage(message)
-                        newMessageCount++
-                        processedIds.add(record.id)
-                    } else {
-                        Log.w(TAG, "⚠️ [SYNC] Failed to parse message ${record.id}")
-                    }
+                                // CRITICAL: Delete messages immediately to prevent infinite loop
+                                val messageIds = mailboxRecords.map { it.id }
+                                messageFetcher?.deleteMessages(userIdentity.seed, messageIds, mailboxHash)
+                                Log.d(TAG, "🗑️ [DELETE] Deleted ${messageIds.size} messages from server")
+
+                                // Keep fetching if we got messages (mailbox may have more)
+                            } else {
+                                // Empty response (noise) - mailbox is empty
+                                Log.d(TAG, "✓ [FETCH_COMPLETE] Mailbox ${mailboxHash.take(8)}... empty after $fetchCount batch(es)")
+                                keepFetching = false
+                            }
+                        }
+                        .onFailure { error ->
+                            Log.e(TAG, "❌ [SYNC] Failed to fetch mailbox ${mailboxHash.take(8)}...: ${error.message}")
+                            keepFetching = false
+                        }
                 }
 
-                // Delete messages from server after successful processing
-                if (processedIds.isNotEmpty()) {
-                    // Use primary mailbox for delete token (all messages belong to our mailboxes)
-                    val primaryMailbox = activeMailboxes.firstOrNull { it.isPrimary }?.hash
-                        ?: activeMailboxes.firstOrNull()?.hash
-                        ?: mailboxHashes.firstOrNull()
-
-                    if (primaryMailbox != null) {
-                        fetcher.deleteMessages(userIdentity.seed, processedIds, primaryMailbox)
-                    } else {
-                        Log.w(TAG, "⚠️ [SYNC] No mailbox available for delete operation")
-                    }
+                if (fetchCount >= MAX_BATCHES) {
+                    Log.w(TAG, "⚠️ [FETCH_LIMIT] Hit safety limit of $MAX_BATCHES batches for mailbox ${mailboxHash.take(8)}...")
                 }
             }
-            .onFailure { error ->
+            records
+        } else {
+            Log.d(TAG, "📥 [LEGACY] Using direct Postgrest fetch")
+            // Legacy: Fetch all mailboxes in one call (variable response size)
+            val result = messageFetcher!!.fetchMessages(userIdentity.seed, mailboxHashes, dbEpoch)
+            result.getOrElse { error ->
                 Log.e(TAG, "❌ [SYNC_FAILED] ${error.message}", error)
+                emptyList()
             }
+        }
+
+        // Process fetched messages
+        if (allMessageRecords.isNotEmpty()) {
+            val processedIds = mutableListOf<String>()
+
+            allMessageRecords.forEach { record ->
+                val message = parseSupabaseMessage(record)
+                if (message != null) {
+                    receiveMessage(message)
+                    newMessageCount++
+                    processedIds.add(record.id)
+                } else {
+                    Log.w(TAG, "⚠️ [SYNC] Failed to parse message ${record.id}")
+                }
+            }
+
+            Log.d(TAG, "📥 [SYNC] Processed ${allMessageRecords.size} messages successfully")
+
+            // Note: Messages are deleted immediately in the Poisson Ghost fetch loop
+            // For legacy protocol, delete them here
+            if (fetchMailboxClient == null && processedIds.isNotEmpty()) {
+                // Use primary mailbox for delete token (all messages belong to our mailboxes)
+                val primaryMailbox = activeMailboxes.firstOrNull { it.isPrimary }?.hash
+                    ?: activeMailboxes.firstOrNull()?.hash
+                    ?: mailboxHashes.firstOrNull()
+
+                if (primaryMailbox != null) {
+                    // Use legacy fetcher for delete
+                    messageFetcher?.deleteMessages(userIdentity.seed, processedIds, primaryMailbox)
+                } else {
+                    Log.w(TAG, "⚠️ [SYNC] No mailbox available for delete operation")
+                }
+            }
+        }
 
         return newMessageCount
     }

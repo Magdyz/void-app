@@ -44,11 +44,68 @@ class VoidApp : Application() {
             modules(appModule)
         }
 
+        // 🚀 INSTANT-VOID: Enable adaptive mode for testing
+        initializeInstantVoid()
+
         // Initialize message sync infrastructure
         initializeSync()
 
         // Initialize push notification registration (Play flavor only)
         initializePushRegistration()
+    }
+
+    /**
+     * Initialize INSTANT-VOID adaptive protocol.
+     *
+     * This enables near real-time messaging during active conversations
+     * while maintaining Poisson Ghost privacy during dormant periods.
+     *
+     * TEMPORARY: For testing Phase 1 implementation.
+     * TODO: Move to user settings UI for production.
+     */
+    private fun initializeInstantVoid() {
+        applicationScope.launch {
+            try {
+                Log.d(TAG, "🚀 Initializing INSTANT-VOID adaptive protocol")
+
+                // Get dependencies from Koin
+                val settings: com.void.block.messaging.adaptive.InstantVoidSettings by inject(
+                    com.void.block.messaging.adaptive.InstantVoidSettings::class.java
+                )
+                val stateManager: com.void.block.messaging.adaptive.ConversationStateManager by inject(
+                    com.void.block.messaging.adaptive.ConversationStateManager::class.java
+                )
+                val pollingEngine: com.void.block.messaging.adaptive.VoidPollingEngine by inject(
+                    com.void.block.messaging.adaptive.VoidPollingEngine::class.java
+                )
+
+                // Initialize state manager (load persisted states)
+                stateManager.initialize()
+                Log.d(TAG, "✅ ConversationStateManager initialized")
+
+                // Enable adaptive mode with BALANCED preset
+                settings.applyPreset(com.void.block.messaging.adaptive.InstantVoidPreset.BALANCED)
+                Log.d(TAG, "✅ INSTANT-VOID enabled (BALANCED preset)")
+
+                // Start adaptive polling engine
+                pollingEngine.start()
+                Log.d(TAG, "✅ Adaptive polling engine started")
+
+                // Log configuration
+                val config = settings.getConfig()
+                Log.d(TAG, "📋 Configuration:")
+                Log.d(TAG, "   - Enabled: ${config.enabled}")
+                Log.d(TAG, "   - WebSocket: ${config.enableWebSocket}")
+                Log.d(TAG, "   - Cover Traffic: ${config.coverTrafficEnabled}")
+                Log.d(TAG, "   - Min Polling: ${config.minPollingInterval}")
+                Log.d(TAG, "   - Max Polling: ${config.maxPollingInterval}")
+
+                Log.d(TAG, "🎉 INSTANT-VOID initialization complete!")
+
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Failed to initialize INSTANT-VOID: ${e.message}", e)
+            }
+        }
     }
 
     /**

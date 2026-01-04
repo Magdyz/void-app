@@ -78,15 +78,57 @@ class MessagingBlock : BlockManifest {
         single { MessageEncryption(get()) }
         // MessageEncryptionService is provided by app module
 
+        // ═══════════════════════════════════════════════════════════════════
+        // INSTANT-VOID Adaptive Components (Phase 1)
+        // ═══════════════════════════════════════════════════════════════════
+
+        // Settings - configuration for adaptive protocol
+        single {
+            com.void.block.messaging.adaptive.InstantVoidSettings(
+                context = get()
+            )
+        }
+
+        // State Manager - tracks conversation activity
+        single {
+            com.void.block.messaging.adaptive.ConversationStateManager(
+                storage = get()
+            )
+        }
+
+        // Polling Engine - adaptive polling implementation
+        single {
+            val settings = get<com.void.block.messaging.adaptive.InstantVoidSettings>()
+            val config = runCatching {
+                kotlinx.coroutines.runBlocking {
+                    settings.getConfig()
+                }
+            }.getOrElse {
+                com.void.block.messaging.adaptive.InstantVoidConfig.DEFAULT
+            }
+
+            com.void.block.messaging.adaptive.VoidPollingEngine(
+                context = get(),
+                messageRepository = get(),
+                stateManager = get(),
+                config = config,
+                scope = kotlinx.coroutines.CoroutineScope(
+                    kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+                )
+            )
+        }
+
         // Data layer
         single {
             MessageRepository(
                 storage = get(),
                 messageSender = get(),
                 messageFetcher = get(),
+                fetchMailboxClient = getOrNull(),  // Optional - Poisson Ghost protocol (2KB padded responses)
                 mailboxDerivation = get(),
                 encryptionService = get(),
-                publicKeyToContactId = getOrNull()  // Optional callback provided by app module
+                publicKeyToContactId = getOrNull(),  // Optional callback provided by app module
+                conversationStateManager = get()  // Wire up INSTANT-VOID state tracking
             )
         }
 
@@ -143,15 +185,57 @@ val messagingModule = module {
     single { MessageEncryption(get()) }
     // MessageEncryptionService is provided by app module
 
+    // ═══════════════════════════════════════════════════════════════════
+    // INSTANT-VOID Adaptive Components (Phase 1)
+    // ═══════════════════════════════════════════════════════════════════
+
+    // Settings - configuration for adaptive protocol
+    single {
+        com.void.block.messaging.adaptive.InstantVoidSettings(
+            context = get()
+        )
+    }
+
+    // State Manager - tracks conversation activity
+    single {
+        com.void.block.messaging.adaptive.ConversationStateManager(
+            storage = get()
+        )
+    }
+
+    // Polling Engine - adaptive polling implementation
+    single {
+        val settings = get<com.void.block.messaging.adaptive.InstantVoidSettings>()
+        val config = runCatching {
+            kotlinx.coroutines.runBlocking {
+                settings.getConfig()
+            }
+        }.getOrElse {
+            com.void.block.messaging.adaptive.InstantVoidConfig.DEFAULT
+        }
+
+        com.void.block.messaging.adaptive.VoidPollingEngine(
+            context = get(),
+            messageRepository = get(),
+            stateManager = get(),
+            config = config,
+            scope = kotlinx.coroutines.CoroutineScope(
+                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+            )
+        )
+    }
+
     // Data layer
     single {
         MessageRepository(
             storage = get(),
             messageSender = get(),
             messageFetcher = get(),
+            fetchMailboxClient = getOrNull(),  // Optional - Poisson Ghost protocol (2KB padded responses)
             mailboxDerivation = get(),
             encryptionService = get(),
-            publicKeyToContactId = getOrNull()  // Optional callback provided by app module
+            publicKeyToContactId = getOrNull(),  // Optional callback provided by app module
+            conversationStateManager = get()  // Wire up INSTANT-VOID state tracking
         )
     }
 

@@ -114,19 +114,30 @@ class VoidFirebaseService : FirebaseMessagingService() {
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
 
-        Log.d(TAG, "⚡ Wake-up tickle received from Google")
+        // Check if this is a heartbeat or message notification
+        // Heartbeats have type="heartbeat", message notifications have no type field
+        val messageType = remoteMessage.data["type"]
+        val isHeartbeat = messageType == "heartbeat"
+
+        if (isHeartbeat) {
+            Log.d(TAG, "🫀 Heartbeat tick received (Poisson Ghost Protocol)")
+            Log.d(TAG, "   Random interval sync - fetching mailbox")
+        } else {
+            Log.d(TAG, "⚡ Message notification received")
+            Log.d(TAG, "   New message available - fetching mailbox")
+        }
+
+        // IMPORTANT: Both heartbeats and message notifications trigger mailbox fetch
+        // The server always returns 2KB (real messages padded, or noise if empty)
+        // This creates constant traffic that hides communication patterns from ISP/Google
+
         Log.d(TAG, "From: ${remoteMessage.from}")
         Log.d(TAG, "Data payload: ${remoteMessage.data}")
 
-        // Verify the notification is genuinely empty (privacy check)
-        if (remoteMessage.data.isNotEmpty() && remoteMessage.data.size > 1) {
-            Log.w(TAG, "⚠️  WARNING: Received non-empty FCM payload!")
-            Log.w(TAG, "This violates Void's privacy architecture!")
-            Log.w(TAG, "Expected: Empty tickle. Got: ${remoteMessage.data}")
-        }
-
         // Wake up the sync engine using WorkManager
         // WorkManager guarantees execution even if app is killed
+        // NOTE: Client ALWAYS fetches mailbox on tick (heartbeat or message)
+        // Server ALWAYS returns 2KB (padded messages or noise)
         Log.d(TAG, "🚀 Triggering MessageSyncWorker")
 
         val syncRequest = OneTimeWorkRequest.Builder(MessageSyncWorker::class.java)
