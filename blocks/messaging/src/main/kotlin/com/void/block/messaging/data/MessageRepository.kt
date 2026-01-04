@@ -179,22 +179,33 @@ class MessageRepository(
         }
 
         // Send message to Supabase using recipient's seed
-        sender.sendMessage(
+        val result = sender.sendMessage(
             recipientSeed = recipientIdentity.seed,
             encryptedPayload = encryptedPayload,
             timestamp = message.timestamp
         )
-            .onSuccess { messageId ->
-                // Update message status to SENT
-                updateMessageStatus(message.id, MessageStatus.SENT)
-                Log.d(TAG, "✓ [MESSAGE_SENT] messageId=${message.id}, supabaseId=$messageId")
+
+        result.onSuccess { messageId ->
+            // Update message status to SENT
+            updateMessageStatus(message.id, MessageStatus.SENT)
+            Log.d(TAG, "✓ [MESSAGE_SENT] messageId=${message.id}, supabaseId=$messageId")
+
+            // Send immediate cover traffic (1-2 decoys) to obscure the real message
+            val decoyCount = kotlin.random.Random.nextInt(1, 3) // 1-2 decoys
+            Log.d(TAG, "🎭 [IMMEDIATE_COVER] Sending $decoyCount decoys after real message")
+            repeat(decoyCount) {
+                try {
+                    sender.sendDecoyMessage()
+                } catch (e: Exception) {
+                    Log.w(TAG, "⚠️  Immediate decoy failed (non-critical): ${e.message}")
+                }
             }
-            .onFailure { error ->
-                // Update message status to FAILED
-                updateMessageStatus(message.id, MessageStatus.FAILED)
-                Log.e(TAG, "❌ [MESSAGE_FAILED] ${error.message}", error)
-                // TODO: Emit error event via EventBus
-            }
+        }.onFailure { error ->
+            // Update message status to FAILED
+            updateMessageStatus(message.id, MessageStatus.FAILED)
+            Log.e(TAG, "❌ [MESSAGE_FAILED] ${error.message}", error)
+            // TODO: Emit error event via EventBus
+        }
     }
 
     /**

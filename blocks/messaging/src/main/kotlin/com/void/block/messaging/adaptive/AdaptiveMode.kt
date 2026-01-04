@@ -22,7 +22,7 @@ enum class ConversationMode {
      * Characteristics:
      * - Polling interval: 3-5 seconds (near real-time)
      * - WebSocket: Optional (can be enabled for instant delivery)
-     * - Decoy traffic: High (2-3 per real message)
+     * - Decoy traffic: High (1-3 per sync, randomized)
      * - Battery impact: Medium
      * - Privacy: High (constant decoy noise)
      *
@@ -30,7 +30,7 @@ enum class ConversationMode {
      */
     ACTIVE {
         override fun getPollingInterval(): Duration = 3.seconds
-        override fun getDecoyCount(): Int = 2
+        override fun getDecoyCount(): Int = kotlin.random.Random.nextInt(1, 4) // 1-3 decoys
         override fun shouldUseWebSocket(): Boolean = false // Start with polling, can enable later
     },
 
@@ -40,7 +40,7 @@ enum class ConversationMode {
      * Characteristics:
      * - Polling interval: 30-90 seconds
      * - WebSocket: Disabled
-     * - Decoy traffic: Medium (2-3 per real message)
+     * - Decoy traffic: Medium (1-3 per sync, randomized)
      * - Battery impact: Low
      * - Privacy: Very High
      *
@@ -48,7 +48,7 @@ enum class ConversationMode {
      */
     SEMI_ACTIVE {
         override fun getPollingInterval(): Duration = 60.seconds
-        override fun getDecoyCount(): Int = 2
+        override fun getDecoyCount(): Int = kotlin.random.Random.nextInt(1, 4) // 1-3 decoys
         override fun shouldUseWebSocket(): Boolean = false
     },
 
@@ -58,7 +58,7 @@ enum class ConversationMode {
      * Characteristics:
      * - Polling interval: Poisson distribution (5-20 min average)
      * - WebSocket: Disabled
-     * - Decoy traffic: Low (maintains baseline noise)
+     * - Decoy traffic: Low (0-2 per sync, randomized)
      * - Battery impact: Minimal
      * - Privacy: Maximum (Poisson Ghost protocol)
      *
@@ -66,7 +66,7 @@ enum class ConversationMode {
      */
     DORMANT {
         override fun getPollingInterval(): Duration = 10.minutes // Average Poisson interval
-        override fun getDecoyCount(): Int = 1
+        override fun getDecoyCount(): Int = kotlin.random.Random.nextInt(0, 3) // 0-2 decoys
         override fun shouldUseWebSocket(): Boolean = false
     };
 
