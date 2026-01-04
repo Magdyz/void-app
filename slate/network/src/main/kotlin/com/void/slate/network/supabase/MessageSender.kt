@@ -1,6 +1,8 @@
 package com.void.slate.network.supabase
 
 import android.util.Log
+import com.void.slate.network.exceptions.RateLimitException
+import com.void.slate.network.exceptions.RateLimitType
 import com.void.slate.network.mailbox.MailboxDerivation
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.from
@@ -80,8 +82,8 @@ class MessageSender(
             // Encode payload as base64
             val ciphertextBase64 = encryptedPayload.toBase64()
 
-            // Calculate expiration time (7 days from now)
-            val expiresAt = Instant.now().plus(MESSAGE_TTL_DAYS, ChronoUnit.DAYS).toString()
+            // Calculate expiration time (6.9 days from now, with safety margin for clock skew)
+            val expiresAt = Instant.now().plus(MESSAGE_TTL_HOURS, ChronoUnit.HOURS).toString()
 
             // Create message insert record
             val messageId = UUID.randomUUID().toString()
@@ -113,6 +115,18 @@ class MessageSender(
 
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to send message: ${e.message}", e)
+
+            // Check for rate limit error
+            if (e.message?.contains("Rate limit exceeded") == true) {
+                Log.w(TAG, "⚠️  Rate limit hit for message sending")
+                return Result.failure(
+                    RateLimitException(
+                        "Message send rate limit exceeded (100/hour per mailbox)",
+                        RateLimitType.MESSAGE_SEND
+                    )
+                )
+            }
+
             Result.failure(e)
         }
     }
@@ -138,7 +152,7 @@ class MessageSender(
             val epoch = mailboxDerivation.calculateEpoch()
 
             val messageId = UUID.randomUUID().toString()
-            val expiresAt = Instant.now().plus(MESSAGE_TTL_DAYS, ChronoUnit.DAYS).toString()
+            val expiresAt = Instant.now().plus(MESSAGE_TTL_HOURS, ChronoUnit.HOURS).toString()
 
             val insertRecord = MessageInsertRecord(
                 id = messageId,
@@ -213,10 +227,19 @@ class MessageSender(
         private const val MAX_MESSAGE_SIZE = 64 * 1024 // 64 KB
 
         /**
-         * Message TTL on server: 7 days.
+         * Message TTL on server: 6.9 days = 165.6 hours (with safety margin).
+         *
+         * The server enforces a strict 7-day maximum, but we use 6.9 days to account for:
+         * - Clock skew between device and server (device may be ahead)
+         * - Network latency (time between calculating and server receiving)
+         * - Processing time (time between server receiving and validating)
+         *
+         * The 0.1 day (2.4 hour) safety margin ensures messages are always accepted
+         * even if the device clock is slightly ahead or network has delays.
+         *
          * After this, messages are auto-deleted by TTL cleanup job.
          */
-        private const val MESSAGE_TTL_DAYS = 7L
+        private const val MESSAGE_TTL_HOURS = 165L  // 6.9 days = 6.9 * 24 = 165.6 hours (rounded down for safety)
     }
 }
 

@@ -3,6 +3,7 @@ package com.void.slate.network.di
 import android.content.Context
 import com.void.slate.network.NetworkClient
 import com.void.slate.network.NetworkConfig
+import com.void.slate.network.auth.EphemeralTokenManager
 import com.void.slate.network.impl.KtorNetworkClient
 import com.void.slate.network.impl.RetryPolicy
 import com.void.slate.network.mailbox.MailboxDerivation
@@ -139,12 +140,24 @@ val networkModule = module {
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // Ephemeral Token Manager
+    // ═══════════════════════════════════════════════════════════════════
+
+    single {
+        EphemeralTokenManager(
+            supabase = get(),
+            crypto = get()  // Injected from slate:core
+        )
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // Message Send/Fetch
     // ═══════════════════════════════════════════════════════════════════
 
     single {
         MessageFetcher(
-            supabase = get()
+            supabase = get(),
+            tokenManager = get()
         )
     }
 

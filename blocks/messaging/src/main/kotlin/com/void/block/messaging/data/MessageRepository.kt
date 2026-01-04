@@ -516,7 +516,7 @@ class MessageRepository(
         Log.d(TAG, "🔍   Timestamp: $timestamp ms")
         Log.d(TAG, "🔍   DB Query Epoch: $dbEpoch sec")
 
-        fetcher.fetchMessages(mailboxHashes, dbEpoch)
+        fetcher.fetchMessages(userIdentity.seed, mailboxHashes, dbEpoch)
             .onSuccess { messageRecords ->
                 Log.d(TAG, "📥 [SYNC] Received ${messageRecords.size} messages from Supabase")
 
@@ -535,7 +535,16 @@ class MessageRepository(
 
                 // Delete messages from server after successful processing
                 if (processedIds.isNotEmpty()) {
-                    fetcher.deleteMessages(processedIds)
+                    // Use primary mailbox for delete token (all messages belong to our mailboxes)
+                    val primaryMailbox = activeMailboxes.firstOrNull { it.isPrimary }?.hash
+                        ?: activeMailboxes.firstOrNull()?.hash
+                        ?: mailboxHashes.firstOrNull()
+
+                    if (primaryMailbox != null) {
+                        fetcher.deleteMessages(userIdentity.seed, processedIds, primaryMailbox)
+                    } else {
+                        Log.w(TAG, "⚠️ [SYNC] No mailbox available for delete operation")
+                    }
                 }
             }
             .onFailure { error ->

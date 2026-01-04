@@ -1,7 +1,9 @@
 package com.void.slate.network.supabase
 
 import android.util.Log
+import com.void.slate.network.auth.EphemeralTokenManager
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.annotations.SupabaseExperimental
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.serialization.SerialName
@@ -25,23 +27,26 @@ import kotlin.random.Random
  *
  * ## Usage
  * ```kotlin
- * val fetcher = MessageFetcher(supabaseClient)
- * val messages = fetcher.fetchMessages(listOf(mailboxAddress))
+ * val fetcher = MessageFetcher(supabaseClient, tokenManager)
+ * val messages = fetcher.fetchMessages(identitySeed, listOf(mailboxAddress), epoch)
  * ```
  */
 class MessageFetcher(
-    private val supabase: SupabaseClient
+    private val supabase: SupabaseClient,
+    private val tokenManager: EphemeralTokenManager
 ) {
 
     /**
      * Fetch messages from specified mailbox addresses.
      *
+     * @param identitySeed The user's 32-byte identity seed (for token generation)
      * @param mailboxHashes List of mailbox hashes to check (usually 1-3 during rotation)
      * @param epoch Current epoch for filtering
      * @param enableDecoys If true, adds decoy queries to hide traffic patterns
      * @return List of encrypted message records
      */
     suspend fun fetchMessages(
+        identitySeed: ByteArray,
         mailboxHashes: List<String>,
         epoch: Long,
         enableDecoys: Boolean = true
@@ -53,7 +58,7 @@ class MessageFetcher(
 
             // Fetch from each mailbox
             for (mailboxHash in mailboxHashes) {
-                val messages = fetchFromMailbox(mailboxHash, epoch)
+                val messages = fetchFromMailbox(identitySeed, mailboxHash, epoch)
                 if (messages.isNotEmpty()) {
                     Log.d(TAG, "   ✓ Mailbox ${mailboxHash.take(8)}... → ${messages.size} messages")
                     allMessages.addAll(messages)
@@ -79,20 +84,30 @@ class MessageFetcher(
     /**
      * Fetch messages from a single mailbox.
      */
-    private suspend fun fetchFromMailbox(mailboxHash: String, epoch: Long): List<MessageRecord> {
+    @OptIn(SupabaseExperimental::class)
+    private suspend fun fetchFromMailbox(identitySeed: ByteArray, mailboxHash: String, epoch: Long): List<MessageRecord> {
         require(mailboxHash.length == 64) { "Mailbox hash must be 64 characters (32 bytes in hex)" }
 
         return try {
+            // Get ephemeral token for this mailbox
+            val tokenResult = tokenManager.getToken(identitySeed, mailboxHash)
+            if (tokenResult.isFailure) {
+                Log.e(TAG, "❌ Failed to get token: ${tokenResult.exceptionOrNull()?.message}")
+                return emptyList()
+            }
+
+            val tokenId = tokenResult.getOrThrow()
+
             // DEBUG: Log query parameters
             val epochMin = epoch - EPOCH_WINDOW
             val epochMax = epoch + EPOCH_WINDOW
             Log.d(TAG, "🔍 [QUERY_DEBUG] Fetching from mailbox ${mailboxHash.take(8)}...")
+            Log.d(TAG, "🔍   Token: $tokenId")
             Log.d(TAG, "🔍   Mailbox (full): $mailboxHash")
             Log.d(TAG, "🔍   Current epoch: $epoch")
             Log.d(TAG, "🔍   Epoch range: $epochMin to $epochMax (window: ±$EPOCH_WINDOW sec)")
 
-            // Query Supabase message_queue table
-            // RLS policy ensures we can only see messages for mailboxes we know
+            // Query Supabase message_queue table with token in header
             val response = supabase
                 .from("message_queue")
                 .select(columns = Columns.ALL) {
@@ -101,6 +116,7 @@ class MessageFetcher(
                         gte("epoch", epochMin) // Tolerate clock skew
                         lte("epoch", epochMax)
                     }
+                    headers.append("X-Mailbox-Token", tokenId.toString())
                 }
                 .decodeList<MessageRecord>()
 
@@ -127,19 +143,34 @@ class MessageFetcher(
      * IMPORTANT: Call this after decrypting and storing messages locally.
      * This ensures the server doesn't retain message history.
      *
+     * @param identitySeed The user's 32-byte identity seed (for token generation)
      * @param messageIds List of message IDs to delete
+     * @param mailboxHash The mailbox hash these messages belong to (for token)
      */
-    suspend fun deleteMessages(messageIds: List<String>): Result<Unit> {
+    @OptIn(SupabaseExperimental::class)
+    suspend fun deleteMessages(
+        identitySeed: ByteArray,
+        messageIds: List<String>,
+        mailboxHash: String
+    ): Result<Unit> {
         return try {
             if (messageIds.isEmpty()) {
                 Log.d(TAG, "🗑️  No messages to delete")
                 return Result.success(Unit)
             }
 
-            Log.d(TAG, "🗑️  Deleting ${messageIds.size} messages from server")
+            // Get ephemeral token for this mailbox
+            val tokenResult = tokenManager.getToken(identitySeed, mailboxHash)
+            if (tokenResult.isFailure) {
+                Log.e(TAG, "❌ Failed to get token for delete: ${tokenResult.exceptionOrNull()?.message}")
+                return Result.failure(tokenResult.exceptionOrNull() ?: Exception("Token request failed"))
+            }
 
-            // Delete messages from Supabase
-            // RLS policy ensures we can only delete messages we fetched
+            val tokenId = tokenResult.getOrThrow()
+            Log.d(TAG, "🗑️  Deleting ${messageIds.size} messages from server (token: $tokenId)")
+
+            // Delete messages from Supabase with token
+            // RLS policy validates token matches mailbox
             for (messageId in messageIds) {
                 supabase
                     .from("message_queue")
@@ -147,6 +178,7 @@ class MessageFetcher(
                         filter {
                             eq("id", messageId)
                         }
+                        headers.append("X-Mailbox-Token", tokenId.toString())
                     }
             }
 
