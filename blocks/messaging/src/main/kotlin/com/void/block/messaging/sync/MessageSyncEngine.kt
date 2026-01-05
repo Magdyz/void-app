@@ -15,18 +15,25 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
 /**
- * MessageSyncEngine - Core sync and notification engine for VOID
+ * MessageSyncEngine - Core sync and notification engine for VOID v1.0
  *
- * Responsibilities:
- * - Maintain WebSocket connection to Void server
- * - Receive encrypted message blobs
+ * v1.0 Responsibilities:
+ * - Perform one-time mailbox sync when FCM wake signal received
  * - Decrypt messages locally
  * - Store messages in MessageRepository
- * - Post local notifications
+ * - Post generic activity notifications (no metadata)
+ * - Implement notification debouncing to prevent spam
  *
- * Modes:
- * - One-time sync: Connect, fetch messages, disconnect (for WorkManager)
- * - Persistent sync: Maintain 24/7 connection (for Hostile Mode)
+ * v1.0 Architecture (Play Flavor Only):
+ * - FCM wake signals (heartbeat + message - indistinguishable)
+ * - One-time sync on wake (fetch 4KB mailbox response)
+ * - Generic notification "VOID - Activity Detected"
+ * - No message counts, no sender info, no previews
+ *
+ * v1.1 Features (Commented Out):
+ * - Persistent WebSocket connection (Hostile Mode)
+ * - FOSS flavor polling
+ * - User choice between Play and FOSS modes
  */
 class MessageSyncEngine(
     private val context: Context,
@@ -38,22 +45,44 @@ class MessageSyncEngine(
     companion object {
         private const val TAG = "MessageSyncEngine"
         private const val NOTIFICATION_CHANNEL_ID = "void_messages"
-        private const val NOTIFICATION_ID_BASE = 10000
 
-        // Foreground service notification ID for Hostile Mode
-        private const val FOREGROUND_NOTIFICATION_ID = 9999
+        // SECURITY: Use single notification ID for all messages
+        // This prevents metadata leakage through multiple notifications
+        private const val NOTIFICATION_ID_ACTIVITY = 10000
+
+        // v1.1: Foreground service notification ID for Hostile Mode
+        // private const val FOREGROUND_NOTIFICATION_ID = 9999
+
+        // v1.0: Debounce interval to prevent notification spam (60 seconds)
+        // This is a critical privacy feature - prevents metadata leakage through notification patterns
+        private const val NOTIFICATION_DEBOUNCE_MS = 60_000L
     }
 
-    private var persistentConnectionJob: Job? = null
-    private var isForegroundService = false
+    // v1.1: Hostile Mode variables (commented out for v1.0)
+    // private var persistentConnectionJob: Job? = null
+    // private var isForegroundService = false
+
+    // v1.0: SECURITY: Track last notification time for debouncing
+    // Prevents metadata leakage through notification spam patterns
+    private var lastNotificationTime = 0L
 
     init {
         createNotificationChannel()
     }
 
     /**
-     * Perform one-time sync - used by WorkManager when FCM tickle is received.
-     * Fetches pending messages from Supabase, decrypts, and stores locally.
+     * v1.0: Perform one-time sync - used by WorkManager when FCM wake signal is received.
+     *
+     * This is the CORE of v1.0 notification architecture:
+     * 1. FCM wake signal arrives (could be heartbeat OR real message - we can't tell!)
+     * 2. This function fetches mailbox (always 4KB response - padded or noise)
+     * 3. If new messages found, post generic notification
+     * 4. Network observer cannot tell if this was a heartbeat or message (constant 4KB)
+     *
+     * Privacy guarantees:
+     * - Constant 4KB mailbox fetch (Google/ISP sees same traffic pattern)
+     * - Generic notification (Android OS sees no metadata)
+     * - Debounced (prevents notification spam pattern analysis)
      */
     suspend fun performOneTimeSync(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
@@ -65,9 +94,11 @@ class MessageSyncEngine(
 
             Log.d(TAG, "📥 Synced $newMessageCount new messages from Supabase")
 
-            // Post generic notification if messages were received
+            // SECURITY: Post single generic notification if messages were received
+            // No counts, no sender info - just "Activity Detected"
+            // Debounced to prevent spam and metadata leakage
             if (newMessageCount > 0) {
-                postMessageNotification("unknown") // Generic for privacy
+                postActivityNotification()
             }
 
             Log.d(TAG, "✅ One-time sync completed successfully")
@@ -79,10 +110,23 @@ class MessageSyncEngine(
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // v1.1: HOSTILE MODE - PERSISTENT WEBSOCKET CONNECTION
+    // ═══════════════════════════════════════════════════════════════
+    // Commented out for v1.0 - will be enabled in v1.1 with user toggle
+    // This provides instant message delivery without FCM (FOSS mode)
+    // ═══════════════════════════════════════════════════════════════
+
+    /*
     /**
-     * Start persistent connection - used for Hostile Mode.
+     * v1.1: Start persistent connection - used for Hostile Mode.
      * Maintains 24/7 WebSocket connection for instant message delivery.
      * Requires foreground service to prevent Android from killing the connection.
+     *
+     * This is a v1.1 feature for users who want maximum privacy (no Google involvement).
+     * In v1.1, users can toggle between:
+     * - Balanced Mode (FCM + Poisson heartbeats) ← v1.0 implementation
+     * - Maximum Privacy (persistent WebSocket only) ← This code
      */
     fun startPersistentSync(asForegroundService: Boolean = false) {
         if (persistentConnectionJob?.isActive == true) {
@@ -156,8 +200,8 @@ class MessageSyncEngine(
                         // Store in database
                         messageRepository.receiveMessage(message)
 
-                        // Post notification
-                        postMessageNotification(receivedMessage.senderIdentity)
+                        // SECURITY: Post generic notification (no sender info)
+                        postActivityNotification()
                     }
 
                 } catch (e: Exception) {
@@ -168,7 +212,7 @@ class MessageSyncEngine(
     }
 
     /**
-     * Stop persistent connection.
+     * v1.1: Stop persistent connection.
      */
     suspend fun stopPersistentSync() {
         Log.d(TAG, "🛑 Stopping persistent sync")
@@ -180,6 +224,7 @@ class MessageSyncEngine(
             removeForegroundServiceNotification()
         }
     }
+    */
 
     /**
      * Create notification channel for messages (required for Android O+).
@@ -199,11 +244,50 @@ class MessageSyncEngine(
     }
 
     /**
-     * Post a generic notification when a new message arrives.
-     * This is intentionally generic for privacy - no content/sender shown.
+     * v1.0: Post a single generic notification when activity is detected.
+     *
+     * CRITICAL v1.0 SECURITY DESIGN:
+     * - Single notification ID (NOTIFICATION_ID_ACTIVITY = 10000) for ALL activity
+     *   → Prevents metadata leakage through multiple notifications
+     *   → Android OS cannot count conversations or messages
+     *
+     * - Generic text: "VOID - Activity Detected"
+     *   → NO message counts (metadata leak)
+     *   → NO sender names (metadata leak)
+     *   → NO message previews (obviously)
+     *   → NO timestamps (metadata leak)
+     *
+     * - Debounced (60 seconds minimum between notifications)
+     *   → Prevents notification spam during active conversations
+     *   → Prevents metadata leakage through notification frequency patterns
+     *   → If user sends 5 messages in 30 seconds, only 1 notification shows
+     *
+     * - Auto-cancel on tap
+     *   → User opens app and sees actual messages after biometric auth
+     *   → Notification disappears automatically
+     *
+     * - Identical for heartbeats and real messages
+     *   → Android OS cannot distinguish between them
+     *   → This is BY DESIGN for Poisson Ghost Protocol
+     *
+     * Privacy Guarantees:
+     * ✅ Google/FCM: Cannot tell if push contains message (heartbeats look identical)
+     * ✅ Android OS: Cannot see sender, count, content (generic notification)
+     * ✅ Network observers: Cannot detect patterns (constant 4KB mailbox fetch)
+     * ✅ Lock screen: Shows "Activity Detected" only (no details)
      */
-    private fun postMessageNotification(senderId: String) {
+    private fun postActivityNotification() {
         try {
+            val now = System.currentTimeMillis()
+
+            // SECURITY: Debounce notifications to prevent spam and pattern analysis
+            if (now - lastNotificationTime < NOTIFICATION_DEBOUNCE_MS) {
+                Log.d(TAG, "⏭️  Notification suppressed (debounced - ${(now - lastNotificationTime) / 1000}s since last)")
+                return
+            }
+
+            lastNotificationTime = now
+
             // Create intent to open the app
             val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
             val pendingIntent = PendingIntent.getActivity(
@@ -213,20 +297,27 @@ class MessageSyncEngine(
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            // Generic notification for privacy
+            // SECURITY: Completely generic notification
+            // - No counts (metadata leak)
+            // - No sender (metadata leak)
+            // - No content (obviously)
+            // - Just a wake-up signal to check the app
             val notification = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
                 .setContentTitle("VOID")
                 .setContentText("Activity Detected")  // Intentionally vague for privacy
                 .setSmallIcon(android.R.drawable.ic_dialog_email)  // TODO: Use app icon
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setAutoCancel(true)
+                .setAutoCancel(true)  // Auto-dismiss when tapped
                 .setContentIntent(pendingIntent)
                 .build()
 
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.notify(NOTIFICATION_ID_BASE + senderId.hashCode(), notification)
 
-            Log.d(TAG, "📬 Notification posted")
+            // SECURITY: Use single notification ID for ALL activity
+            // This replaces any existing notification (no multiple notifications)
+            notificationManager.notify(NOTIFICATION_ID_ACTIVITY, notification)
+
+            Log.d(TAG, "📬 Activity notification posted (debounced)")
 
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to post notification: ${e.message}", e)
@@ -234,8 +325,42 @@ class MessageSyncEngine(
     }
 
     /**
-     * Post persistent foreground service notification (for Hostile Mode).
-     * This keeps the app alive and WebSocket connection open.
+     * v1.0: Clear the activity notification.
+     *
+     * Called when user opens the app - this is a critical UX flow:
+     * 1. User sees generic notification on lock screen ("Activity Detected")
+     * 2. User unlocks device and taps notification
+     * 3. App opens and clears the notification
+     * 4. User sees biometric prompt (if enabled)
+     * 5. After auth, user sees actual messages with sender names and content
+     *
+     * This function is called from:
+     * - MainActivity.onCreate() - When app starts fresh
+     * - MainActivity.onResume() - When app comes to foreground
+     * - MainActivity.onNewIntent() - When notification is tapped while app is running
+     *
+     * Result: User never sees stale notification while app is open.
+     */
+    fun clearActivityNotification() {
+        try {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.cancel(NOTIFICATION_ID_ACTIVITY)
+            Log.d(TAG, "🔕 Activity notification cleared")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Failed to clear notification: ${e.message}", e)
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // v1.1: HOSTILE MODE - FOREGROUND SERVICE NOTIFICATIONS
+    // ═══════════════════════════════════════════════════════════════
+    // Commented out for v1.0 - will be enabled in v1.1 with user toggle
+    // ═══════════════════════════════════════════════════════════════
+
+    /*
+    /**
+     * v1.1: Post persistent foreground service notification (for Hostile Mode).
+     * This keeps the app alive and WebSocket connection open 24/7.
      */
     private fun postForegroundServiceNotification() {
         val notification = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
@@ -253,7 +378,7 @@ class MessageSyncEngine(
     }
 
     /**
-     * Remove foreground service notification.
+     * v1.1: Remove foreground service notification.
      */
     private fun removeForegroundServiceNotification() {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -261,7 +386,8 @@ class MessageSyncEngine(
     }
 
     /**
-     * Enable Hostile Mode - promotes to foreground service.
+     * v1.1: Enable Hostile Mode - promotes to foreground service.
+     * This provides instant message delivery without FCM for maximum privacy.
      */
     fun enableHostileMode() {
         Log.d(TAG, "🚨 Hostile Mode enabled - promoting to foreground service")
@@ -272,7 +398,7 @@ class MessageSyncEngine(
     }
 
     /**
-     * Disable Hostile Mode - demotes from foreground service.
+     * v1.1: Disable Hostile Mode - demotes from foreground service.
      */
     fun disableHostileMode() {
         Log.d(TAG, "✅ Hostile Mode disabled - returning to normal operation")
@@ -280,4 +406,5 @@ class MessageSyncEngine(
             stopPersistentSync()
         }
     }
+    */
 }

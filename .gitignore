@@ -10,6 +10,9 @@ build/
 *.dex
 local.properties
 
+# Firebase Configuration (contains project-specific API keys)
+app/google-services.json
+
 # IntelliJ IDEA
 .idea/
 *.iml

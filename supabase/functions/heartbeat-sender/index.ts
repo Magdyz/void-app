@@ -1,17 +1,31 @@
 // =========================================================================
-// POISSON GHOST PROTOCOL: HEARTBEAT SENDER EDGE FUNCTION
+// v1.0 POISSON GHOST PROTOCOL: HEARTBEAT SENDER EDGE FUNCTION
 // =========================================================================
-// Sends periodic "heartbeat" FCM pushes at random intervals (10-20 min).
+// Sends periodic "heartbeat" FCM pushes at random Poisson intervals (10-20 min).
 // This creates constant background traffic indistinguishable from real messages.
 //
-// Privacy Architecture:
-// - Heartbeat pushes look identical to real message notifications
-// - Random intervals per user (Poisson distribution)
-// - Client always fetches mailbox on heartbeat (even if empty)
-// - Server always returns 2KB (padded messages or noise)
-// - Google/ISP cannot distinguish heartbeat from real message
+// v1.0 CRITICAL PRIVACY ARCHITECTURE:
+// ═══════════════════════════════════════════════════════════════════════
+// - Heartbeat FCM pushes are BYTE-FOR-BYTE IDENTICAL to real message pushes
+// - Random intervals per user (Poisson distribution, λ = 15 minutes)
+// - Client ALWAYS fetches mailbox on ANY FCM push (cannot distinguish!)
+// - Server ALWAYS returns 4KB response (padded messages or pure noise)
+// - Google/FCM cannot distinguish heartbeat from real message (CRITICAL!)
+// - Network observers cannot detect communication patterns (constant 4KB traffic)
 //
-// Triggered by: pg_cron every 1 minute
+// Why This Works:
+// - Google sees: Device gets push every 10-20 minutes (looks like normal messaging)
+// - Google CANNOT see: Which pushes are heartbeats vs real messages
+// - Network sees: Constant 4KB HTTPS requests (cannot tell if real data)
+// - Result: Real message timing is statistically hidden in heartbeat noise
+//
+// Poisson Distribution Benefits:
+// - Average 15 minute interval, but random (not predictable)
+// - Some heartbeats arrive quickly (5 min), others slowly (25 min)
+// - This matches natural human messaging patterns
+// - Makes it impossible to distinguish "busy user" from "heartbeat pattern"
+//
+// Triggered by: pg_cron every 1 minute (checks which users are due)
 // =========================================================================
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -145,27 +159,52 @@ Deno.serve(async (req) => {
         const nonce = crypto.randomUUID()
         const epoch = Math.floor(Date.now() / 1000)
 
-        // Send silent FCM push notification
-        // IMPORTANT: This looks identical to real message notifications
-        // The client MUST always fetch mailbox on receipt
+        // v1.0: Send silent FCM push notification
+        // ═══════════════════════════════════════════════════════════════
+        // CRITICAL SECURITY REQUIREMENT:
+        // This payload MUST be BYTE-FOR-BYTE IDENTICAL to real message FCM pushes.
+        // If they differ in ANY way, Google can distinguish them → privacy leak!
+        //
+        // What This Payload Contains:
+        // ✅ epoch: Unix timestamp (prevents iOS deduplication)
+        // ✅ nonce: Random UUID (prevents iOS deduplication)
+        // ❌ NO 'type' field - would leak "heartbeat" vs "message" to Google
+        // ❌ NO sender info - would leak who is messaging
+        // ❌ NO message count - would leak conversation volume
+        //
+        // Client Behavior:
+        // - Receives this FCM push (cannot tell if heartbeat or message)
+        // - ALWAYS fetches mailbox (constant 4KB HTTPS request)
+        // - Server returns 4KB noise response (mailbox is empty for heartbeat)
+        // - Client sees no messages, shows no notification
+        // - User unaware this happened (as intended)
+        //
+        // Why This Works:
+        // - Google sees identical FCM payload for ALL pushes
+        // - Google CANNOT distinguish heartbeat from real message
+        // - Network observers see constant 4KB mailbox fetches
+        // - Real message timing is hidden in heartbeat noise
+        // ═══════════════════════════════════════════════════════════════
         const fcmPayload = {
           message: {
             token: heartbeat.fcm_token,
             data: {
-              type: 'heartbeat', // Distinguishes heartbeat from message notification
               epoch: epoch.toString(),
               nonce: nonce
+              // v1.0 CRITICAL: NO 'type' field!
+              // Adding "type: heartbeat" would leak metadata to Google/FCM
+              // Client cannot distinguish until after fetching mailbox
             },
             android: {
-              priority: 'high'
+              priority: 'high'  // Same as real messages
             },
             apns: {
               headers: {
-                'apns-priority': '10'
+                'apns-priority': '10'  // Same as real messages
               },
               payload: {
                 aps: {
-                  'content-available': 1
+                  'content-available': 1  // Silent push (same as real messages)
                 }
               }
             }

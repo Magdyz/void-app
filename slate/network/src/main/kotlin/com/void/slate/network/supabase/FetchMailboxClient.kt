@@ -99,7 +99,7 @@ class FetchMailboxClient(
             val response: HttpResponse = httpClient.post(functionUrl) {
                 contentType(ContentType.Application.Json)
                 header("Authorization", "Bearer $supabaseAnonKey")  // Required by Supabase Edge Functions
-                header("X-Mailbox-Token", tokenId.toString())       // Our custom auth token
+                header("x-mailbox-token", tokenId.toString())       // Our custom auth token (lowercase for Supabase RLS)
                 setBody(requestBody)
             }
 

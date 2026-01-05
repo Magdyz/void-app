@@ -186,7 +186,8 @@ val networkModule = module {
     single {
         PushRegistration(
             supabase = get(),
-            mailboxDerivation = get()
+            mailboxDerivation = get(),
+            tokenManager = get()  // SECURITY: Proof-of-ownership for FCM registration
         )
     }
 

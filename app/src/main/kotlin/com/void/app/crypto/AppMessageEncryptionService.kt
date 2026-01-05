@@ -48,6 +48,13 @@ class AppMessageEncryptionService(
                 return null
             }
 
+            // DEBUG: Log recipient details from contact
+            Log.e(TAG, "🔍 ========== SENDER'S VIEW OF RECIPIENT ==========")
+            Log.e(TAG, "🔍 Recipient three-word identity: ${contact.identity}")
+            Log.e(TAG, "🔍 Recipient seed (first 16 bytes): ${contact.identitySeed.take(16).joinToString("") { "%02x".format(it) }}")
+            Log.e(TAG, "🔍 Recipient publicKey (full): ${contact.publicKey.joinToString("") { "%02x".format(it) }}")
+            Log.e(TAG, "🔍 ================================================")
+
             val recipientPublicKey = contact.publicKey
             Log.d(TAG, "🔑 [KEY_LOAD] Recipient publicKey: ${recipientPublicKey.size} bytes")
 
@@ -172,6 +179,16 @@ class AppMessageEncryptionService(
                 Log.e(TAG, "❌ [DECRYPT_FAILED] My private key not found")
                 return null
             }
+
+            // DEBUG: Log receiver's actual identity and keys
+            val myIdentity = identityRepository.getIdentity()
+            val myPublicKey = identityRepository.getPublicEncryptionKey()
+            Log.e(TAG, "🔍 ========== RECEIVER'S ACTUAL KEYS ==========")
+            Log.e(TAG, "🔍 My three-word identity: ${myIdentity?.formatted}")
+            Log.e(TAG, "🔍 My seed (first 16 bytes): ${myIdentity?.seed?.take(16)?.joinToString("") { "%02x".format(it) }}")
+            Log.e(TAG, "🔍 My publicKey (full): ${myPublicKey?.joinToString("") { "%02x".format(it) }}")
+            Log.e(TAG, "🔍 ============================================")
+
             Log.d(TAG, "🔑 [KEY_LOAD] My privateKey: ${myPrivateKey.size} bytes")
 
             // Get all contacts to try decryption

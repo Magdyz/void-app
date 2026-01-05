@@ -1,10 +1,15 @@
 package com.void.app
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -38,9 +43,29 @@ class MainActivity : FragmentActivity() {
     private val generateIdentity: GenerateIdentity by inject()
     private val cryptoProvider: CryptoProvider by inject()
     private val secureStorage: SecureStorage by inject()
+    private val messageSyncEngine: com.void.block.messaging.sync.MessageSyncEngine by inject()
+
+    /**
+     * Permission launcher for POST_NOTIFICATIONS (Android 13+).
+     * Registered before onCreate to handle permission requests.
+     */
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            Log.d("VOID_PERMISSIONS", "✅ Notification permission granted")
+        } else {
+            Log.d("VOID_PERMISSIONS", "⚠️  Notification permission denied - push notifications disabled")
+            Log.d("VOID_PERMISSIONS", "   App will continue using polling for message delivery")
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // SECURITY: Clear activity notification when app opens
+        // User will see message details in-app after authentication
+        messageSyncEngine.clearActivityNotification()
 
         setContent {
             VoidTheme {
@@ -94,6 +119,11 @@ class MainActivity : FragmentActivity() {
                                 handleVoidDeepLink(navController!!, uri)
                             }
                         }
+
+                        // Request notification permission on Android 13+ (one-time request)
+                        LaunchedEffect(Unit) {
+                            requestNotificationPermissionIfNeeded()
+                        }
                     }
                 }
             }
@@ -107,6 +137,9 @@ class MainActivity : FragmentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
 
+        // SECURITY: Clear notification when app returns from background
+        messageSyncEngine.clearActivityNotification()
+
         // Handle deep link from new intent
         intent.data?.let { uri ->
             // We'll need to pass the navController somehow
@@ -114,6 +147,18 @@ class MainActivity : FragmentActivity() {
             Log.d("VOID_DEEPLINK", "New intent received with deep link: $uri")
             // TODO: Implement proper deep link handling for onNewIntent
         }
+    }
+
+    /**
+     * Called when activity comes to foreground.
+     * Clear notifications so user sees details in-app after auth.
+     */
+    override fun onResume() {
+        super.onResume()
+
+        // SECURITY: Clear activity notification when app comes to foreground
+        // User will see actual message details in-app after authentication
+        messageSyncEngine.clearActivityNotification()
     }
 
     /**
@@ -212,6 +257,48 @@ class MainActivity : FragmentActivity() {
 
         } catch (e: Exception) {
             Log.e("VOID_SECURE", "❌ VERIFICATION FAILED: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Request POST_NOTIFICATIONS permission on Android 13+ (API 33+).
+     *
+     * On Android 13+, apps must explicitly request this permission to show notifications.
+     * This is a one-time request that shows the system permission dialog.
+     *
+     * If denied:
+     * - Push notifications won't be shown (but will still wake the app)
+     * - App falls back to polling for message delivery
+     * - User can manually enable in Settings later
+     *
+     * IMPORTANT: This is called ONCE when the app starts. We don't spam the user
+     * if they deny the permission. They can enable it in Settings if they change their mind.
+     */
+    private fun requestNotificationPermissionIfNeeded() {
+        // Only needed on Android 13+ (TIRAMISU = API 33)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val permission = Manifest.permission.POST_NOTIFICATIONS
+
+            when {
+                ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED -> {
+                    // Permission already granted
+                    Log.d("VOID_PERMISSIONS", "✅ Notification permission already granted")
+                }
+                shouldShowRequestPermissionRationale(permission) -> {
+                    // User previously denied, but we could show rationale
+                    // For now, we'll still request it once
+                    Log.d("VOID_PERMISSIONS", "📱 Requesting notification permission (user previously denied)")
+                    notificationPermissionLauncher.launch(permission)
+                }
+                else -> {
+                    // First time asking for permission
+                    Log.d("VOID_PERMISSIONS", "📱 Requesting notification permission (first time)")
+                    notificationPermissionLauncher.launch(permission)
+                }
+            }
+        } else {
+            // Android 12 and below - permission granted automatically
+            Log.d("VOID_PERMISSIONS", "✅ Notification permission not required (Android < 13)")
         }
     }
 }

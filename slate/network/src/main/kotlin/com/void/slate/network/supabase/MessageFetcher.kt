@@ -116,7 +116,7 @@ class MessageFetcher(
                         gte("epoch", epochMin) // Tolerate clock skew
                         lte("epoch", epochMax)
                     }
-                    headers.append("X-Mailbox-Token", tokenId.toString())
+                    headers.append("x-mailbox-token", tokenId.toString())
                 }
                 .decodeList<MessageRecord>()
 
@@ -178,7 +178,7 @@ class MessageFetcher(
                         filter {
                             eq("id", messageId)
                         }
-                        headers.append("X-Mailbox-Token", tokenId.toString())
+                        headers.append("x-mailbox-token", tokenId.toString())
                     }
             }
 

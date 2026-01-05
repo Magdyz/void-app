@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Required for notifications on Android 13+ (API 33+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name="com.void.app.VoidApp"
@@ -42,6 +44,15 @@
                     android:pathPrefix="/c/" />
             </intent-filter>
         </activity>
+
+        <!-- FCM Service for Poisson Ghost Protocol -->
+        <service
+            android:name="com.void.app.service.VoidFirebaseService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>

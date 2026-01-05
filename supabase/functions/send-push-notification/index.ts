@@ -141,16 +141,30 @@ Deno.serve(async (req) => {
     // Generate random nonce to ensure iOS doesn't deduplicate identical pushes
     const nonce = crypto.randomUUID()
 
-    // Send silent FCM push notification using V1 API
+    // Send FCM push notification using V1 API
+    // CRITICAL: Notification payload is REQUIRED to wake app when killed on Android
+    // The notification is immediately suppressed by VoidFirebaseService.onMessageReceived()
     const fcmPayload = {
       message: {
         token: fcmToken,
         data: {
           epoch: epoch.toString(),
-          nonce: nonce
+          nonce: nonce,
+          silent: 'true'  // Tell service to suppress notification
+        },
+        notification: {
+          title: 'VOID',  // Generic title (no metadata)
+          body: 'Checking for activity...'  // Generic message (no metadata)
         },
         android: {
-          priority: 'high'
+          priority: 'high',
+          notification: {
+            channel_id: 'void_sync',  // Use dedicated silent channel
+            notification_priority: 'PRIORITY_LOW',  // Low priority to avoid sound/vibration
+            visibility: 'secret',  // Hide from lock screen
+            tag: 'void_sync',  // Same tag = replaces previous notification
+            color: '#000000'
+          }
         },
         apns: {
           headers: {
@@ -158,7 +172,12 @@ Deno.serve(async (req) => {
           },
           payload: {
             aps: {
-              'content-available': 1
+              'content-available': 1,
+              alert: {
+                title: 'VOID',
+                body: 'Checking for activity...'
+              },
+              sound: ''  // Silent
             }
           }
         }

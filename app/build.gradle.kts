@@ -2,7 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.google.services) apply false  // Applied conditionally per flavor
+    alias(libs.plugins.google.services)  // Required for FCM
 }
 
 android {
@@ -20,19 +20,6 @@ android {
 
         vectorDrawables {
             useSupportLibrary = true
-        }
-    }
-
-    flavorDimensions += "store"
-    productFlavors {
-        create("play") {
-            dimension = "store"
-            // Play Store version with Firebase Cloud Messaging
-        }
-        create("foss") {
-            dimension = "store"
-            // F-Droid version with UnifiedPush (stub for now)
-            applicationIdSuffix = ".foss"
         }
     }
 
@@ -113,10 +100,9 @@ dependencies {
     // WorkManager for background sync
     implementation(libs.workmanager.runtime)
 
-    // Push notifications - flavor specific
-    "playImplementation"(platform(libs.firebase.bom))
-    "playImplementation"(libs.firebase.messaging)
-    "fossImplementation"(libs.unifiedpush)
+    // Firebase Cloud Messaging for Poisson Ghost Protocol
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
 
     // Testing
     testImplementation(libs.bundles.testing)
@@ -124,9 +110,4 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
 }
 
-// Apply Google Services plugin only for Play flavor
-afterEvaluate {
-    tasks.matching { it.name.contains("Process") && it.name.contains("PlayRelease") }.configureEach {
-        // Note: google-services.json will be needed in app/ directory for Play flavor
-    }
-}
+// Google Services plugin processes google-services.json for FCM configuration
