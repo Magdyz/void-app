@@ -89,22 +89,34 @@ class ConversationListViewModel(
 
     /**
      * Sync messages from server immediately.
-     * Triggers background sync worker to fetch new messages.
+     * Triggered by pull-to-refresh gesture.
+     *
+     * SECURITY: Uses normal 5-minute debounce to prevent spam.
+     * User can pull-to-refresh but actual sync only happens every 5 minutes.
+     * This prevents anxious users from burning through API limits.
      */
     fun syncMessages() {
         viewModelScope.launch {
             try {
                 _isRefreshing.value = true
-                // Trigger immediate sync from server
-                syncScheduler.triggerImmediateSync()
-                // The sync will happen in background, and messages will auto-update
-                // through the repository's Flow
+
+                // Use normal debounce (5 minutes) - not force
+                // Pull-to-refresh is easy to spam, so we don't bypass debounce
+                val count = messageRepository.syncMessages(force = false)
+
+                if (count > 0) {
+                    android.util.Log.d("ConversationList", "✅ Pull-to-refresh: Synced $count new messages")
+                } else if (count == -1) {
+                    android.util.Log.d("ConversationList", "⏭️  Pull-to-refresh: Debounced - sync will happen automatically in background")
+                } else {
+                    android.util.Log.d("ConversationList", "📭 Pull-to-refresh: No new messages")
+                }
 
                 // Keep refreshing indicator visible for a short time
-                // to give user feedback that sync was triggered
-                kotlinx.coroutines.delay(1000)
+                // Even if debounced, show user we acknowledged their action
+                kotlinx.coroutines.delay(500)
             } catch (e: Exception) {
-                // Sync error - non-critical, periodic sync will retry
+                android.util.Log.e("ConversationList", "❌ Pull-to-refresh failed: ${e.message}")
             } finally {
                 _isRefreshing.value = false
             }

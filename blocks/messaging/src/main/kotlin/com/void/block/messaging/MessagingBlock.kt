@@ -119,6 +119,14 @@ class MessagingBlock : BlockManifest {
             )
         }
 
+        // Sync Debouncer - prevents excessive fetches (5 min interval)
+        single {
+            com.void.block.messaging.sync.SyncDebouncer(
+                storage = get(),
+                debounceIntervalMs = com.void.block.messaging.sync.SyncDebouncer.DEFAULT_DEBOUNCE_INTERVAL_MS
+            )
+        }
+
         // Data layer
         single {
             MessageRepository(
@@ -129,7 +137,8 @@ class MessagingBlock : BlockManifest {
                 mailboxDerivation = get(),
                 encryptionService = get(),
                 publicKeyToContactId = getOrNull(),  // Optional callback provided by app module
-                conversationStateManager = get()  // Wire up INSTANT-VOID state tracking
+                conversationStateManager = get(),  // Wire up INSTANT-VOID state tracking
+                syncDebouncer = get()  // Prevents excessive syncs (5 min debounce)
             )
         }
 
@@ -227,6 +236,14 @@ val messagingModule = module {
         )
     }
 
+    // Sync Debouncer - prevents excessive fetches (5 min interval)
+    single {
+        com.void.block.messaging.sync.SyncDebouncer(
+            storage = get(),
+            debounceIntervalMs = com.void.block.messaging.sync.SyncDebouncer.DEFAULT_DEBOUNCE_INTERVAL_MS
+        )
+    }
+
     // Data layer
     single {
         MessageRepository(
@@ -237,7 +254,8 @@ val messagingModule = module {
             mailboxDerivation = get(),
             encryptionService = get(),
             publicKeyToContactId = getOrNull(),  // Optional callback provided by app module
-            conversationStateManager = get()  // Wire up INSTANT-VOID state tracking
+            conversationStateManager = get(),  // Wire up INSTANT-VOID state tracking
+            syncDebouncer = get()  // Prevents excessive syncs (5 min debounce)
         )
     }
 

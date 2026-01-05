@@ -43,20 +43,31 @@ class ChatViewModel(
     }
 
     /**
-     * Start polling for new messages every 3 seconds.
+     * Start polling for new messages.
+     *
+     * SECURITY NOTE: Polling interval is intentionally long (30s) to reduce metadata leakage.
+     * With debouncing enabled (5min), most poll attempts will be skipped anyway.
+     * Real-time updates rely on FCM pushes + Poisson Ghost heartbeats.
      */
     private fun startMessagePolling() {
         viewModelScope.launch {
-            Log.d(TAG, "🔄 [POLLING_START] Message polling started")
+            Log.d(TAG, "🔄 [POLLING_START] Message polling started (30s interval)")
             while (true) {
                 try {
-                    // Sync messages from network
+                    // Sync messages from network (will be debounced if called too frequently)
                     val count = messageRepository.syncMessages()
-                    Log.d(TAG, "🔄 [POLLING] Synced $count new messages")
+                    if (count == -1) {
+                        // Debounced - sync was skipped
+                        Log.d(TAG, "🔄 [POLLING] Sync debounced (too soon since last sync)")
+                    } else if (count > 0) {
+                        Log.d(TAG, "🔄 [POLLING] Synced $count new messages")
+                    } else {
+                        Log.d(TAG, "🔄 [POLLING] No new messages")
+                    }
                 } catch (e: Exception) {
                     Log.e(TAG, "❌ [POLLING_ERROR] ${e.message}", e)
                 }
-                delay(3000) // Poll every 3 seconds
+                delay(30_000) // Poll every 30 seconds (down from 3s - debouncer will handle actual rate limiting)
             }
         }
     }
@@ -69,6 +80,16 @@ class ChatViewModel(
             _state.value = ChatState.Loading
 
             try {
+                // ✅ FIX: Force an immediate sync when user opens chat (bypasses 5-min debounce)
+                // Uses 30-second emergency debounce instead, so user gets fresh messages
+                Log.d(TAG, "🔄 [CHAT_OPEN] User opened chat - forcing immediate sync")
+                val syncCount = messageRepository.syncMessages(force = true)
+                if (syncCount > 0) {
+                    Log.d(TAG, "✅ [CHAT_OPEN] Fetched $syncCount new messages")
+                } else if (syncCount == -1) {
+                    Log.d(TAG, "⏭️  [CHAT_OPEN] Sync debounced (used emergency 30s interval)")
+                }
+
                 // Load messages from repository
                 messageRepository.loadMessages(conversationId)
 

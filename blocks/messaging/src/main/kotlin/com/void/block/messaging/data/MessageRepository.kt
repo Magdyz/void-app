@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import com.void.block.messaging.sync.SyncDebouncer
 
 /**
  * Repository for managing messages and conversations.
@@ -33,7 +34,8 @@ class MessageRepository(
     private val mailboxDerivation: MailboxDerivation? = null,  // Optional for fetching
     private val encryptionService: MessageEncryptionService? = null,  // Optional - null = no encryption
     private val publicKeyToContactId: (suspend (String) -> String?)? = null,  // Optional - converts public key hex to contact UUID
-    private val conversationStateManager: com.void.block.messaging.adaptive.ConversationStateManager? = null  // Optional - for INSTANT-VOID adaptive mode
+    private val conversationStateManager: com.void.block.messaging.adaptive.ConversationStateManager? = null,  // Optional - for INSTANT-VOID adaptive mode
+    private val syncDebouncer: SyncDebouncer? = null  // Optional - prevents excessive syncs (5 min interval)
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -502,8 +504,25 @@ class MessageRepository(
      *
      * Fetches messages from the user's mailbox and stores them locally.
      * Returns the number of new messages received.
+     *
+     * @param since Optional timestamp to fetch messages from (default: now)
+     * @param force If true, bypasses debouncing (uses 30s emergency interval instead of 5min)
+     * @return Number of new messages received, or -1 if skipped due to debouncing
      */
-    suspend fun syncMessages(since: Long? = null): Int {
+    suspend fun syncMessages(since: Long? = null, force: Boolean = false): Int {
+        // ✅ DEBOUNCE: Check if we should skip this sync
+        if (syncDebouncer != null) {
+            val shouldSync = syncDebouncer.shouldSync(force)
+            if (!shouldSync) {
+                val remainingMs = syncDebouncer.getTimeUntilNextSync(force)
+                val remainingSec = remainingMs / 1000
+                Log.d(TAG, "⏭️  [SYNC_SKIPPED] Debounced - wait ${remainingSec}s before next sync")
+                return -1  // -1 indicates sync was skipped
+            }
+            // Record this sync attempt to prevent subsequent calls within debounce window
+            syncDebouncer.recordSync()
+        }
+
         // Check for fetcher (either Poisson Ghost or legacy)
         if (fetchMailboxClient == null && messageFetcher == null) {
             Log.w(TAG, "⚠️ [SYNC] No message fetcher available")
