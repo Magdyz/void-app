@@ -6,6 +6,7 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
+import kotlinx.coroutines.delay
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.util.UUID
@@ -73,6 +74,7 @@ class EphemeralTokenManager(
     /**
      * Request a new ephemeral token from server.
      * Generates HMAC proof-of-ownership challenge.
+     * Retries with exponential backoff on timeout/network errors.
      */
     private suspend fun requestToken(identitySeed: ByteArray, mailboxHash: String): CachedToken {
         // Generate timestamp (seconds since epoch)
@@ -85,20 +87,45 @@ class EphemeralTokenManager(
         Log.d(TAG, "  📝 Challenge message: $message")
         Log.d(TAG, "  🔐 Challenge HMAC: ${challenge.take(16)}...")
 
-        // Call PostgreSQL function via RPC
-        val response = supabase.postgrest.rpc(
-            function = "request_query_token",
-            parameters = TokenRequest(
-                p_mailbox_hash = mailboxHash,
-                p_timestamp = timestamp,
-                p_challenge = challenge
-            )
-        ).decodeSingle<TokenResponse>()
+        // Retry with exponential backoff (1s, 2s, 4s)
+        var lastException: Exception? = null
+        for (attempt in 0 until MAX_RETRY_ATTEMPTS) {
+            try {
+                if (attempt > 0) {
+                    val backoffMs = BASE_BACKOFF_MS * (1 shl (attempt - 1)) // 1s, 2s, 4s
+                    Log.d(TAG, "  🔄 Retry attempt ${attempt + 1}/$MAX_RETRY_ATTEMPTS after ${backoffMs}ms...")
+                    delay(backoffMs)
+                }
 
-        return CachedToken(
-            tokenId = UUID.fromString(response.token_id),
-            expiresAt = response.expires_at
-        )
+                // Call PostgreSQL function via RPC
+                val response = supabase.postgrest.rpc(
+                    function = "request_query_token",
+                    parameters = TokenRequest(
+                        p_mailbox_hash = mailboxHash,
+                        p_timestamp = timestamp,
+                        p_challenge = challenge
+                    )
+                ).decodeSingle<TokenResponse>()
+
+                return CachedToken(
+                    tokenId = UUID.fromString(response.token_id),
+                    expiresAt = response.expires_at
+                )
+            } catch (e: Exception) {
+                lastException = e
+                val isRetryable = e.message?.contains("timeout", ignoreCase = true) == true ||
+                        e.message?.contains("connection", ignoreCase = true) == true ||
+                        e.message?.contains("network", ignoreCase = true) == true
+
+                if (!isRetryable) {
+                    Log.e(TAG, "  ❌ Non-retryable error: ${e.message}")
+                    throw e
+                }
+                Log.w(TAG, "  ⚠️ Attempt ${attempt + 1} failed: ${e.message}")
+            }
+        }
+
+        throw lastException ?: Exception("Token request failed after $MAX_RETRY_ATTEMPTS attempts")
     }
 
     /**
@@ -123,6 +150,10 @@ class EphemeralTokenManager(
 
     companion object {
         private const val TAG = "EphemeralTokenManager"
+
+        // Retry configuration: 3 attempts with 1s, 2s, 4s backoff
+        private const val MAX_RETRY_ATTEMPTS = 3
+        private const val BASE_BACKOFF_MS = 1000L
     }
 }
 

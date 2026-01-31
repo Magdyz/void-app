@@ -16,6 +16,9 @@ import com.void.slate.network.mailbox.MailboxDerivation
 import com.void.slate.storage.SecureStorage
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -613,45 +616,17 @@ class MessageRepository(
         // Fetch messages using Poisson Ghost protocol (preferred) or legacy fetcher
         val allMessageRecords = if (fetchMailboxClient != null) {
             Log.d(TAG, "📥 [POISSON_GHOST] Using 4KB padded fetch protocol")
-            // Poisson Ghost: Fetch each mailbox with fetch-until-empty loop
-            // Keep fetching until we get a noise response (empty mailbox)
-            val records = mutableListOf<MessageRecord>()
-            for (mailboxHash in mailboxHashes) {
-                var fetchCount = 0
-                var keepFetching = true
-                val MAX_BATCHES = 100 // Safety limit to prevent infinite loops
-
-                while (keepFetching && fetchCount < MAX_BATCHES) {
-                    fetchCount++
-                    fetchMailboxClient.fetchMessages(userIdentity.seed, mailboxHash, dbEpoch)
-                        .onSuccess { mailboxRecords ->
-                            if (mailboxRecords.isNotEmpty()) {
-                                records.addAll(mailboxRecords)
-                                Log.d(TAG, "📥 [FETCH_LOOP] Batch $fetchCount: ${mailboxRecords.size} messages from ${mailboxHash.take(8)}...")
-
-                                // CRITICAL: Delete messages immediately to prevent infinite loop
-                                val messageIds = mailboxRecords.map { it.id }
-                                messageFetcher?.deleteMessages(userIdentity.seed, messageIds, mailboxHash)
-                                Log.d(TAG, "🗑️ [DELETE] Deleted ${messageIds.size} messages from server")
-
-                                // Keep fetching if we got messages (mailbox may have more)
-                            } else {
-                                // Empty response (noise) - mailbox is empty
-                                Log.d(TAG, "✓ [FETCH_COMPLETE] Mailbox ${mailboxHash.take(8)}... empty after $fetchCount batch(es)")
-                                keepFetching = false
-                            }
-                        }
-                        .onFailure { error ->
-                            Log.e(TAG, "❌ [SYNC] Failed to fetch mailbox ${mailboxHash.take(8)}...: ${error.message}")
-                            keepFetching = false
-                        }
+            // Poisson Ghost: Fetch mailboxes in PARALLEL with fetch-until-empty loop
+            // Keep fetching each mailbox until we get a noise response (empty mailbox)
+            coroutineScope {
+                val deferredResults = mailboxHashes.map { mailboxHash ->
+                    async {
+                        fetchMailboxUntilEmpty(mailboxHash, userIdentity.seed, dbEpoch)
+                    }
                 }
-
-                if (fetchCount >= MAX_BATCHES) {
-                    Log.w(TAG, "⚠️ [FETCH_LIMIT] Hit safety limit of $MAX_BATCHES batches for mailbox ${mailboxHash.take(8)}...")
-                }
+                // Await all parallel fetches and flatten results
+                deferredResults.awaitAll().flatten()
             }
-            records
         } else {
             Log.d(TAG, "📥 [LEGACY] Using direct Postgrest fetch")
             // Legacy: Fetch all mailboxes in one call (variable response size)
@@ -697,6 +672,58 @@ class MessageRepository(
         }
 
         return newMessageCount
+    }
+
+    /**
+     * Fetch all messages from a single mailbox until empty.
+     * Used by parallel fetch to isolate each mailbox's fetch loop.
+     *
+     * @param mailboxHash The mailbox hash to fetch from
+     * @param identitySeed User's identity seed for token generation
+     * @param dbEpoch Database query epoch
+     * @return List of message records fetched from this mailbox
+     */
+    private suspend fun fetchMailboxUntilEmpty(
+        mailboxHash: String,
+        identitySeed: ByteArray,
+        dbEpoch: Long
+    ): List<MessageRecord> {
+        val records = mutableListOf<MessageRecord>()
+        var fetchCount = 0
+        var keepFetching = true
+        val MAX_BATCHES = 100 // Safety limit to prevent infinite loops
+
+        while (keepFetching && fetchCount < MAX_BATCHES) {
+            fetchCount++
+            fetchMailboxClient?.fetchMessages(identitySeed, mailboxHash, dbEpoch)
+                ?.onSuccess { mailboxRecords ->
+                    if (mailboxRecords.isNotEmpty()) {
+                        records.addAll(mailboxRecords)
+                        Log.d(TAG, "📥 [FETCH_LOOP] Batch $fetchCount: ${mailboxRecords.size} messages from ${mailboxHash.take(8)}...")
+
+                        // CRITICAL: Delete messages immediately to prevent infinite loop
+                        val messageIds = mailboxRecords.map { it.id }
+                        messageFetcher?.deleteMessages(identitySeed, messageIds, mailboxHash)
+                        Log.d(TAG, "🗑️ [DELETE] Deleted ${messageIds.size} messages from server")
+
+                        // Keep fetching if we got messages (mailbox may have more)
+                    } else {
+                        // Empty response (noise) - mailbox is empty
+                        Log.d(TAG, "✓ [FETCH_COMPLETE] Mailbox ${mailboxHash.take(8)}... empty after $fetchCount batch(es)")
+                        keepFetching = false
+                    }
+                }
+                ?.onFailure { error ->
+                    Log.e(TAG, "❌ [SYNC] Failed to fetch mailbox ${mailboxHash.take(8)}...: ${error.message}")
+                    keepFetching = false
+                }
+        }
+
+        if (fetchCount >= MAX_BATCHES) {
+            Log.w(TAG, "⚠️ [FETCH_LIMIT] Hit safety limit of $MAX_BATCHES batches for mailbox ${mailboxHash.take(8)}...")
+        }
+
+        return records
     }
 
     /**
