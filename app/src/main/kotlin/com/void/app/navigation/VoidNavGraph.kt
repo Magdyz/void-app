@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlin.coroutines.cancellation.CancellationException
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -286,6 +287,10 @@ fun VoidNavGraph(
                     } else {
                         android.util.Log.e("VOID_QR", "❌ [QR_GENERATE] Missing required data!")
                     }
+                } catch (e: CancellationException) {
+                    // Normal cancellation when user navigates away - not an error
+                    android.util.Log.d("VOID_QR", "⏹️ [QR_GENERATE] Cancelled (user navigated away)")
+                    throw e  // Re-throw to properly cancel the coroutine
                 } catch (e: Exception) {
                     android.util.Log.e("VOID_QR", "❌ [QR_GENERATE] Failed to generate QR code JSON", e)
                     qrCodeJson = null

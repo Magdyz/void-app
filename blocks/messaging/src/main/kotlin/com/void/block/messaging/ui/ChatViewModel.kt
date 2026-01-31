@@ -58,8 +58,8 @@ class ChatViewModel(
 
             while (true) {
                 try {
-                    // Sync messages from network (will be debounced if called too frequently)
-                    val count = messageRepository.syncMessages()
+                    // Sync messages from network with active chat mode (30s debounce instead of 5min)
+                    val count = messageRepository.syncMessages(activeChat = true)
                     if (count == -1) {
                         // Debounced - sync was skipped
                         Log.d(TAG, "🔄 [POLLING] Sync debounced (too soon since last sync)")
@@ -71,7 +71,7 @@ class ChatViewModel(
                 } catch (e: Exception) {
                     Log.e(TAG, "❌ [POLLING_ERROR] ${e.message}", e)
                 }
-                delay(30_000) // Poll every 30 seconds (down from 3s - debouncer will handle actual rate limiting)
+                delay(30_000) // Poll every 30 seconds, matches active-chat debounce interval
             }
         }
     }

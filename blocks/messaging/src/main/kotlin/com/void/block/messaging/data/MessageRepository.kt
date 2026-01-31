@@ -558,14 +558,15 @@ class MessageRepository(
      *
      * @param since Optional timestamp to fetch messages from (default: now)
      * @param force If true, bypasses debouncing (uses 10s emergency interval instead of 5min)
+     * @param activeChat If true, uses 30s interval for polling while chat is open
      * @return Number of new messages received, or -1 if skipped due to debouncing
      */
-    suspend fun syncMessages(since: Long? = null, force: Boolean = false): Int {
+    suspend fun syncMessages(since: Long? = null, force: Boolean = false, activeChat: Boolean = false): Int {
         // ✅ DEBOUNCE: Check if we should skip this sync
         if (syncDebouncer != null) {
-            val shouldSync = syncDebouncer.shouldSync(force)
+            val shouldSync = syncDebouncer.shouldSync(force, activeChat)
             if (!shouldSync) {
-                val remainingMs = syncDebouncer.getTimeUntilNextSync(force)
+                val remainingMs = syncDebouncer.getTimeUntilNextSync(force, activeChat)
                 val remainingSec = remainingMs / 1000
                 Log.d(TAG, "⏭️  [SYNC_SKIPPED] Debounced - wait ${remainingSec}s before next sync")
                 return -1  // -1 indicates sync was skipped

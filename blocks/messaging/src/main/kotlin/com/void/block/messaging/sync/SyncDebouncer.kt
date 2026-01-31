@@ -30,6 +30,12 @@ class SyncDebouncer(
         const val DEFAULT_DEBOUNCE_INTERVAL_MS = 5 * 60 * 1000L // 5 minutes
 
         /**
+         * Active chat interval: 30 seconds
+         * Used when polling while user has chat open (activeChat=true)
+         */
+        const val ACTIVE_CHAT_DEBOUNCE_INTERVAL_MS = 30 * 1000L // 30 seconds
+
+        /**
          * Emergency override interval: 10 seconds
          * Used when force=true is requested (e.g., user opens chat)
          */
@@ -40,14 +46,25 @@ class SyncDebouncer(
      * Check if enough time has elapsed since the last sync.
      *
      * @param force If true, uses emergency debounce interval (10s instead of 5min)
+     * @param activeChat If true, uses active chat interval (30s) for polling while chat is open
      * @return true if sync should proceed, false if it should be skipped
      */
-    suspend fun shouldSync(force: Boolean = false): Boolean {
+    suspend fun shouldSync(force: Boolean = false, activeChat: Boolean = false): Boolean {
         val now = System.currentTimeMillis()
         val lastSyncTime = getLastSyncTime() ?: 0L
         val timeSinceLastSync = now - lastSyncTime
 
-        val effectiveInterval = if (force) EMERGENCY_DEBOUNCE_INTERVAL_MS else debounceIntervalMs
+        val effectiveInterval = when {
+            force -> EMERGENCY_DEBOUNCE_INTERVAL_MS
+            activeChat -> ACTIVE_CHAT_DEBOUNCE_INTERVAL_MS
+            else -> debounceIntervalMs
+        }
+
+        val intervalName = when {
+            force -> "emergency"
+            activeChat -> "active-chat"
+            else -> "normal"
+        }
 
         val shouldSync = timeSinceLastSync >= effectiveInterval
 
@@ -55,7 +72,7 @@ class SyncDebouncer(
             val remainingMs = effectiveInterval - timeSinceLastSync
             val remainingSec = remainingMs / 1000
             Log.d(TAG, "⏭️  [DEBOUNCE] Sync skipped - last sync ${timeSinceLastSync / 1000}s ago, " +
-                    "wait ${remainingSec}s more (${if (force) "emergency" else "normal"} interval)")
+                    "wait ${remainingSec}s more ($intervalName interval)")
         } else {
             Log.d(TAG, "✓ [DEBOUNCE] Sync allowed - ${timeSinceLastSync / 1000}s since last sync")
         }
@@ -90,11 +107,15 @@ class SyncDebouncer(
      * Get time remaining until next sync is allowed (in milliseconds).
      * Returns 0 if sync is currently allowed.
      */
-    suspend fun getTimeUntilNextSync(force: Boolean = false): Long {
+    suspend fun getTimeUntilNextSync(force: Boolean = false, activeChat: Boolean = false): Long {
         val lastSyncTime = getLastSyncTime() ?: return 0L
         val now = System.currentTimeMillis()
         val timeSinceLastSync = now - lastSyncTime
-        val effectiveInterval = if (force) EMERGENCY_DEBOUNCE_INTERVAL_MS else debounceIntervalMs
+        val effectiveInterval = when {
+            force -> EMERGENCY_DEBOUNCE_INTERVAL_MS
+            activeChat -> ACTIVE_CHAT_DEBOUNCE_INTERVAL_MS
+            else -> debounceIntervalMs
+        }
         val remaining = effectiveInterval - timeSinceLastSync
         return maxOf(0L, remaining)
     }
