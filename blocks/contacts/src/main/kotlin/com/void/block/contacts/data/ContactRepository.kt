@@ -261,7 +261,7 @@ class ContactRepository(
             displayName = null,
             publicKey = request.publicKey,
             identityKey = request.identityKey,
-            identitySeed = request.identitySeed,
+            mailboxSeed = request.mailboxSeed,
             verified = false,
             blocked = false,
             fingerprint = ""
@@ -435,17 +435,17 @@ class ContactRepository(
             val fromIdentity = ThreeWordIdentity.parse(networkRequest.fromIdentity) ?: return null
 
             // Parse the public key bundle
-            val (encryptionKey, identityKey, identitySeed) = parsePublicKeyBundle(networkRequest.publicKeyBundle)
+            val (encryptionKey, identityKey, mailboxSeed) = parsePublicKeyBundle(networkRequest.publicKeyBundle)
                 ?: return null
 
-            Log.d(TAG, "🔑 [CONTACT_REQUEST_PARSE] Received keys: encryptionKey=${encryptionKey.size} bytes, identityKey=${identityKey.size} bytes, identitySeed=${identitySeed.size} bytes")
+            Log.d(TAG, "🔑 [CONTACT_REQUEST_PARSE] Received keys: encryptionKey=${encryptionKey.size} bytes, identityKey=${identityKey.size} bytes, mailboxSeed=${mailboxSeed.size} bytes")
 
             ContactRequest(
                 id = networkRequest.requestId,
                 fromIdentity = fromIdentity,
                 publicKey = encryptionKey,
                 identityKey = identityKey,
-                identitySeed = identitySeed,
+                mailboxSeed = mailboxSeed,
                 timestamp = networkRequest.timestamp,
                 status = ContactRequest.RequestStatus.PENDING
             )

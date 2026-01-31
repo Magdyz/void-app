@@ -50,8 +50,9 @@ class IdentityRepository(
     private suspend fun ensureKeysExist() {
         val hasEncryptionKey = secureStorage.get(KEY_ENCRYPTION_PUBLIC) != null
         val hasIdentityKey = secureStorage.get(KEY_IDENTITY_PUBLIC) != null
+        val hasMailboxSeed = secureStorage.get(KEY_MAILBOX_SEED) != null
 
-        if (!hasEncryptionKey || !hasIdentityKey) {
+        if (!hasEncryptionKey || !hasIdentityKey || !hasMailboxSeed) {
             Log.w(TAG, "⚠️  [KEY_MISSING] Keys not found for existing identity - generating now")
             generateAndStoreKeyPairs()
         } else {
@@ -117,28 +118,28 @@ class IdentityRepository(
      * Generates:
      * - X25519 key pair for encryption (ECDH)
      * - Ed25519 key pair for signatures (identity verification)
+     * - Mailbox seed for deriving blind mailbox addresses
      *
-     * IMPORTANT: For Phase 2, keys are derived deterministically from the identity seed.
-     * This allows manual contact exchange (just share the 3 words).
-     * In Phase 3, this will be replaced with random keys + proper key exchange.
+     * 🔒 SECURITY (Phase 3):
+     * - Private keys are derived from identitySeed (NEVER SHARED)
+     * - Mailbox seed is derived separately (CAN BE SHARED via QR code)
+     * - Mailbox seed CANNOT derive private keys (domain separation via HKDF)
      */
     private suspend fun generateAndStoreKeyPairs() {
         // Get identity seed
         val identity = _identity.value ?: getIdentity()
         require(identity != null) { "Identity must exist before generating keys" }
 
-        // Derive encryption key pair deterministically from identity seed
-        // Same identity seed always produces the same keys
+        // Derive encryption key pair (X25519 for ECDH)
         val encryptionKeyPair = crypto.deriveKeyPairFromSeed(identity.seed, "encryption")
 
         Log.d(TAG, "🔑 [KEY_DERIVE] Derived encryption key pair from seed: publicKey=${encryptionKeyPair.publicKey.size} bytes, privateKey=${encryptionKeyPair.privateKey.size} bytes")
 
         // Store encryption keys in secure storage
-        // Private keys should go to Android Keystore in production
         secureStorage.put(KEY_ENCRYPTION_PUBLIC, encryptionKeyPair.publicKey)
         secureStorage.put(KEY_ENCRYPTION_PRIVATE, encryptionKeyPair.privateKey)
 
-        // Derive identity/signature key pair
+        // Derive identity/signature key pair (Ed25519 for signatures)
         val identityKeyPair = crypto.deriveKeyPairFromSeed(identity.seed, "identity")
 
         Log.d(TAG, "🔑 [KEY_DERIVE] Derived identity key pair from seed: publicKey=${identityKeyPair.publicKey.size} bytes, privateKey=${identityKeyPair.privateKey.size} bytes")
@@ -147,7 +148,15 @@ class IdentityRepository(
         secureStorage.put(KEY_IDENTITY_PUBLIC, identityKeyPair.publicKey)
         secureStorage.put(KEY_IDENTITY_PRIVATE, identityKeyPair.privateKey)
 
-        Log.d(TAG, "✓ [KEY_STORE] All keys stored securely (deterministic derivation)")
+        // 🆕 Derive mailbox seed (SAFE TO SHARE - cannot derive private keys)
+        val mailboxSeed = crypto.derive(identity.seed, "mailbox-seed")
+
+        Log.d(TAG, "🔑 [KEY_DERIVE] Derived mailbox seed from identity seed: ${mailboxSeed.size} bytes")
+
+        // Store mailbox seed
+        secureStorage.put(KEY_MAILBOX_SEED, mailboxSeed)
+
+        Log.d(TAG, "✓ [KEY_STORE] All keys stored securely: encryption, identity, mailbox seed")
     }
 
     /**
@@ -200,7 +209,32 @@ class IdentityRepository(
     suspend fun getPrivateIdentityKey(): ByteArray? {
         return secureStorage.get(KEY_IDENTITY_PRIVATE)
     }
-    
+
+    /**
+     * Get the mailbox seed for this identity.
+     *
+     * 🔒 SECURITY: This seed is SAFE TO SHARE via QR code.
+     * - It is used ONLY for deriving time-based mailbox addresses
+     * - It CANNOT derive private encryption or signing keys
+     * - Domain separation via HKDF prevents key derivation attacks
+     *
+     * Used for:
+     * - Sending messages to this identity's mailbox
+     * - Deriving blind mailbox addresses that rotate every 25 hours
+     *
+     * @return 32-byte mailbox seed, or null if not found
+     */
+    suspend fun getMailboxSeed(): ByteArray? {
+        val seed = secureStorage.get(KEY_MAILBOX_SEED)
+        if (seed == null) {
+            Log.e(TAG, "❌ [KEY_ERROR] Mailbox seed not found in storage")
+            Log.e(TAG, "   Storage key checked: $KEY_MAILBOX_SEED")
+        } else {
+            Log.d(TAG, "✓ [KEY_FOUND] Mailbox seed: ${seed.size} bytes")
+        }
+        return seed
+    }
+
     /**
      * Delete the current identity and all associated keys.
      */
@@ -218,6 +252,7 @@ class IdentityRepository(
         secureStorage.delete(KEY_ENCRYPTION_PRIVATE)
         secureStorage.delete(KEY_IDENTITY_PUBLIC)
         secureStorage.delete(KEY_IDENTITY_PRIVATE)
+        secureStorage.delete(KEY_MAILBOX_SEED)
 
         // Delete from Android Keystore
         keystoreManager.deleteAllVoidKeys()
@@ -277,5 +312,6 @@ class IdentityRepository(
         private const val KEY_ENCRYPTION_PRIVATE = "identity.encryption.private"
         private const val KEY_IDENTITY_PUBLIC = "identity.identity.public"
         private const val KEY_IDENTITY_PRIVATE = "identity.identity.private"
+        private const val KEY_MAILBOX_SEED = "identity.mailbox.seed"
     }
 }

@@ -51,7 +51,7 @@ class AppMessageEncryptionService(
             // DEBUG: Log recipient details from contact
             Log.e(TAG, "🔍 ========== SENDER'S VIEW OF RECIPIENT ==========")
             Log.e(TAG, "🔍 Recipient three-word identity: ${contact.identity}")
-            Log.e(TAG, "🔍 Recipient seed (first 16 bytes): ${contact.identitySeed.take(16).joinToString("") { "%02x".format(it) }}")
+            Log.e(TAG, "🔍 Recipient mailboxSeed (first 16 bytes): ${contact.mailboxSeed.take(16).joinToString("") { "%02x".format(it) }}")
             Log.e(TAG, "🔍 Recipient publicKey (full): ${contact.publicKey.joinToString("") { "%02x".format(it) }}")
             Log.e(TAG, "🔍 ================================================")
 
@@ -156,7 +156,7 @@ class AppMessageEncryptionService(
         val contact = contactRepository.getContact(recipientId) ?: return null
 
         return com.void.block.messaging.crypto.RecipientIdentity(
-            seed = contact.identitySeed,
+            seed = contact.mailboxSeed,
             threeWordIdentity = contact.identity.toString()
         )
     }
@@ -250,9 +250,10 @@ class AppMessageEncryptionService(
 
     override suspend fun getOwnIdentity(): com.void.block.messaging.crypto.RecipientIdentity? {
         val identity = identityRepository.getIdentity() ?: return null
+        val mailboxSeed = identityRepository.getMailboxSeed() ?: return null
 
         return com.void.block.messaging.crypto.RecipientIdentity(
-            seed = identity.seed,
+            seed = mailboxSeed,  // ✅ FIX: Use mailbox seed (SAFE TO SHARE), not identity seed
             threeWordIdentity = identity.formatted
         )
     }

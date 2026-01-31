@@ -26,6 +26,7 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.serialization.json.Json
 import org.koin.dsl.module
+import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -94,6 +95,12 @@ val networkModule = module {
                     .connectTimeout(networkConfig.connectionTimeout, TimeUnit.MILLISECONDS)
                     .readTimeout(networkConfig.connectionTimeout, TimeUnit.MILLISECONDS)
                     .writeTimeout(networkConfig.connectionTimeout, TimeUnit.MILLISECONDS)
+                    // PERFORMANCE: Connection pooling to reuse TLS connections
+                    .connectionPool(ConnectionPool(
+                        maxIdleConnections = 5,  // Keep up to 5 idle connections
+                        keepAliveDuration = 5,    // Keep connections alive for 5 minutes
+                        timeUnit = TimeUnit.MINUTES
+                    ))
                     .build()
             }
         }

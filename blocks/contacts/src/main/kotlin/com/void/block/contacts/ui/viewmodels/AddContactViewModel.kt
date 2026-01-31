@@ -1,9 +1,11 @@
 package com.void.block.contacts.ui.viewmodels
 
+import android.util.Base64
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.void.block.contacts.data.ContactRepository
 import com.void.block.contacts.domain.Contact
+import com.void.block.contacts.domain.ContactQRData
 import com.void.block.contacts.domain.ThreeWordIdentity
 import com.void.block.contacts.events.ContactEvent
 import com.void.slate.crypto.CryptoProvider
@@ -47,54 +49,103 @@ class AddContactViewModel(
     }
 
     /**
-     * Validate and add the contact.
+     * 🚨 DEPRECATED: This method derives keys from three-word identity, which is INSECURE!
+     *
+     * Phase 3 Security Issue:
+     * - Three-word identity should NOT derive cryptographic keys
+     * - Anyone who knows the three words can derive the person's PRIVATE KEYS
+     * - This is a catastrophic security vulnerability
+     *
+     * Use `addContactFromQR()` instead, which receives keys via secure QR code exchange.
      */
+    @Deprecated(
+        message = "Insecure! Derives keys from three-word identity. Use addContactFromQR() instead.",
+        level = DeprecationLevel.ERROR
+    )
     fun addContact() {
-        val identityStr = _identityInput.value.trim()
-        val nickname = _nicknameInput.value.trim().takeIf { it.isNotEmpty() }
+        _uiState.value = AddContactUiState.Error(
+            "Manual contact addition is deprecated for security reasons. " +
+            "Please use QR code scanning to add contacts securely."
+        )
+    }
 
-        // Validate identity format
-        val identity = ThreeWordIdentity.parse(identityStr)
-        if (identity == null) {
-            _uiState.value = AddContactUiState.Error("Invalid identity format. Use: word1.word2.word3")
-            return
-        }
-
-        // Check if contact already exists
+    /**
+     * Add a contact from QR code data (Phase 3 secure method).
+     *
+     * 🔒 SECURITY: QR code contains actual public keys and mailboxSeed (not derived from three words).
+     * - publicKey: Their X25519 public key (for encrypting messages TO them)
+     * - identityKey: Their Ed25519 public key (for verifying their signatures)
+     * - mailboxSeed: Their mailbox seed (for deriving their mailbox addresses)
+     *
+     * mailboxSeed is SAFE TO SHARE - it cannot derive private keys.
+     *
+     * @param qrData The contact data scanned from QR code
+     */
+    fun addContactFromQR(qrData: ContactQRData) {
         viewModelScope.launch {
-            val existing = repository.findContactByIdentity(identity)
-            if (existing != null) {
-                _uiState.value = AddContactUiState.Error("Contact already exists")
-                return@launch
-            }
-
-            // Generate deterministic seed from identity
-            val identitySeed = generateDeterministicSeed(identity)
-
-            // Derive encryption keys from seed (deterministic)
-            // This allows manual contact exchange by just sharing the three words
-            val (publicKey, identityKey) = deriveKeysFromSeed(identitySeed)
-
-            // Create new contact
-            val contact = Contact(
-                id = UUID.randomUUID().toString(),
-                identity = identity,
-                displayName = nickname,
-                publicKey = publicKey,      // ✓ Derived from seed!
-                identityKey = identityKey,  // ✓ Derived from seed!
-                identitySeed = identitySeed,
-                verified = false,
-                blocked = false,
-                fingerprint = ""
-            ).let {
-                it.copy(fingerprint = it.generateFingerprint())
-            }
-
             try {
+                android.util.Log.d("VOID_QR", "🔍 [QR_PARSE] Received QR data:")
+                android.util.Log.d("VOID_QR", "  Identity: ${qrData.identity}")
+                android.util.Log.d("VOID_QR", "  PublicKey (Base64): ${qrData.publicKey.take(20)}...")
+                android.util.Log.d("VOID_QR", "  IdentityKey (Base64): ${qrData.identityKey.take(20)}...")
+                android.util.Log.d("VOID_QR", "  MailboxSeed (Base64): ${qrData.mailboxSeed.take(20)}...")
+                android.util.Log.d("VOID_QR", "  Timestamp: ${qrData.timestamp}")
+
+                // Validate QR code timestamp (reject if older than 5 minutes)
+                val now = System.currentTimeMillis()
+                val ageMinutes = (now - qrData.timestamp) / (1000 * 60)
+                if (ageMinutes > 5) {
+                    _uiState.value = AddContactUiState.Error(
+                        "QR code expired (${ageMinutes} minutes old). " +
+                        "Ask them to generate a new QR code."
+                    )
+                    return@launch
+                }
+
+                // Check if contact already exists
+                val existing = repository.findContactByIdentity(qrData.identity)
+                if (existing != null) {
+                    _uiState.value = AddContactUiState.Error("Contact already exists")
+                    return@launch
+                }
+
+                // Decode Base64 keys and seed
+                val publicKey = Base64.decode(qrData.publicKey, Base64.NO_WRAP)
+                val identityKey = Base64.decode(qrData.identityKey, Base64.NO_WRAP)
+                val mailboxSeed = Base64.decode(qrData.mailboxSeed, Base64.NO_WRAP)
+
+                android.util.Log.d("VOID_QR", "✅ [QR_DECODE] Decoded binary data:")
+                android.util.Log.d("VOID_QR", "  PublicKey: ${publicKey.size} bytes")
+                android.util.Log.d("VOID_QR", "  IdentityKey: ${identityKey.size} bytes")
+                android.util.Log.d("VOID_QR", "  MailboxSeed: ${mailboxSeed.size} bytes (first 16: ${mailboxSeed.take(16).joinToString("") { "%02x".format(it) }})")
+
+                // Create new contact
+                val contact = Contact(
+                    id = UUID.randomUUID().toString(),
+                    identity = qrData.identity,
+                    displayName = _nicknameInput.value.trim().takeIf { it.isNotEmpty() },
+                    publicKey = publicKey,
+                    identityKey = identityKey,
+                    mailboxSeed = mailboxSeed,  // 🆕 Phase 3: SAFE TO SHARE
+                    verified = true,  // Verified via QR code exchange in person
+                    blocked = false,
+                    fingerprint = ""
+                ).let {
+                    it.copy(fingerprint = it.generateFingerprint())
+                }
+
+                android.util.Log.d("VOID_QR", "💾 [QR_SAVE] Saving contact:")
+                android.util.Log.d("VOID_QR", "  ContactID: ${contact.id}")
+                android.util.Log.d("VOID_QR", "  Identity: ${contact.identity}")
+                android.util.Log.d("VOID_QR", "  MailboxSeed stored: ${contact.mailboxSeed.take(16).joinToString("") { "%02x".format(it) }}")
+
                 repository.addContact(contact)
                 eventBus.emit(ContactEvent.ContactAdded(contact.id, contact.identity.toString()))
                 _uiState.value = AddContactUiState.Success(contact.id)
+
+                android.util.Log.d("VOID_QR", "✅ [QR_COMPLETE] Contact added successfully")
             } catch (e: Exception) {
+                android.util.Log.e("VOID_QR", "❌ [QR_ERROR] Failed to add contact", e)
                 _uiState.value = AddContactUiState.Error("Failed to add contact: ${e.message}")
             }
         }
@@ -109,43 +160,12 @@ class AddContactViewModel(
         _nicknameInput.value = ""
     }
 
-    /**
-     * Generate deterministic seed from three-word identity.
-     * Uses the same derivation as identity generation, so the same words
-     * always produce the same seed. This enables manual contact exchange.
-     */
-    private fun generateDeterministicSeed(identity: ThreeWordIdentity): ByteArray {
-        // Match the derivation in GenerateIdentity.deriveSeedFromWords()
-        val combined = "${identity.word1}.${identity.word2}.${identity.word3}"
+    // 🗑️ REMOVED: generateDeterministicSeed() - SECURITY VULNERABILITY
+    // Three-word identity should NEVER derive cryptographic keys!
+    // Anyone with the three words could derive private keys.
 
-        // Use HKDF-like derivation for consistency with crypto.derive()
-        // This matches: crypto.derive(ByteArray(32), combined)
-        return java.security.MessageDigest.getInstance("SHA-256")
-            .digest(combined.toByteArray())
-    }
-
-    /**
-     * Derive encryption keys from identity seed (deterministic).
-     *
-     * IMPORTANT: For Phase 2, we derive keys deterministically from the seed.
-     * This allows manual contact exchange (just share the 3 words).
-     * In Phase 3, this will be replaced with proper key exchange via QR/network.
-     *
-     * @return Pair of (publicEncryptionKey, publicIdentityKey)
-     */
-    private suspend fun deriveKeysFromSeed(seed: ByteArray): Pair<ByteArray, ByteArray> {
-        // Derive encryption key pair (X25519 for ECDH)
-        // Use the seed to generate a deterministic key pair
-        val encryptionKeyPair = crypto.deriveKeyPairFromSeed(seed, "encryption")
-
-        // Derive identity key pair (Ed25519 for signatures)
-        val identityKeyPair = crypto.deriveKeyPairFromSeed(seed, "identity")
-
-        return Pair(
-            encryptionKeyPair.publicKey,
-            identityKeyPair.publicKey
-        )
-    }
+    // 🗑️ REMOVED: deriveKeysFromSeed() - SECURITY VULNERABILITY
+    // Keys must be exchanged via QR code, not derived from identity.
 }
 
 /**

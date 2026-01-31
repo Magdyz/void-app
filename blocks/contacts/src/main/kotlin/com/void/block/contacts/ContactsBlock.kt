@@ -90,11 +90,15 @@ class ContactsBlock : BlockManifest {
             )
         }
 
-        // Scan QR screen - placeholder for now
+        // Scan QR screen
         composable(Routes.CONTACTS_SCAN) {
-            // TODO: Implement ScanQRScreen in Phase 2 continuation
-            // For now, show simple placeholder
-            androidx.compose.material3.Text("QR Scanner - Coming Soon")
+            com.void.block.contacts.ui.screens.ScanQRScreen(
+                onNavigateBack = { navigator.goBack() },
+                onContactAdded = { contactId ->
+                    // Navigate to chat with new contact
+                    navigator.navigate("messages/chat/$contactId")
+                }
+            )
         }
     }
 }

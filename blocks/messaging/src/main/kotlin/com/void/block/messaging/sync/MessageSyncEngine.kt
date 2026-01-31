@@ -90,10 +90,14 @@ class MessageSyncEngine(
 
             // ✅ FIX: Use force=true to bypass 5-minute debounce for FCM-triggered syncs
             // This ensures messages are fetched when FCM push arrives
-            // Uses 30-second emergency debounce instead
+            // Uses 10-second emergency debounce instead
             val newMessageCount = messageRepository.syncMessages(force = true)
 
-            Log.d(TAG, "📥 Synced $newMessageCount new messages from Supabase")
+            when {
+                newMessageCount == -1 -> Log.d(TAG, "⏭️  Sync debounced (too soon since last sync)")
+                newMessageCount > 0 -> Log.d(TAG, "📥 Synced $newMessageCount new messages from Supabase")
+                else -> Log.d(TAG, "✓ No new messages")
+            }
 
             // SECURITY: Post single generic notification if messages were received
             // No counts, no sender info - just "Activity Detected"

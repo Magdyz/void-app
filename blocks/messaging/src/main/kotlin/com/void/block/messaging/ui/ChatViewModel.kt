@@ -52,6 +52,10 @@ class ChatViewModel(
     private fun startMessagePolling() {
         viewModelScope.launch {
             Log.d(TAG, "🔄 [POLLING_START] Message polling started (30s interval)")
+
+            // ✅ FIX: Wait before first poll to avoid race with initial force sync
+            delay(30_000)
+
             while (true) {
                 try {
                     // Sync messages from network (will be debounced if called too frequently)
@@ -81,13 +85,13 @@ class ChatViewModel(
 
             try {
                 // ✅ FIX: Force an immediate sync when user opens chat (bypasses 5-min debounce)
-                // Uses 30-second emergency debounce instead, so user gets fresh messages
+                // Uses 10-second emergency debounce instead, so user gets fresh messages
                 Log.d(TAG, "🔄 [CHAT_OPEN] User opened chat - forcing immediate sync")
                 val syncCount = messageRepository.syncMessages(force = true)
                 if (syncCount > 0) {
                     Log.d(TAG, "✅ [CHAT_OPEN] Fetched $syncCount new messages")
                 } else if (syncCount == -1) {
-                    Log.d(TAG, "⏭️  [CHAT_OPEN] Sync debounced (used emergency 30s interval)")
+                    Log.d(TAG, "⏭️  [CHAT_OPEN] Sync debounced (used emergency 10s interval)")
                 }
 
                 // Load messages from repository
@@ -150,6 +154,12 @@ class ChatViewModel(
         val text = _messageText.value.trim()
         if (text.isBlank()) return
 
+        Log.d(TAG, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        Log.d(TAG, "🚀 [SEND_START] User initiated message send")
+        Log.d(TAG, "   📝 Text: \"$text\"")
+        Log.d(TAG, "   👤 ContactID: $contactId")
+        Log.d(TAG, "   💬 ConversationID: $conversationId")
+
         viewModelScope.launch {
             try {
                 // Create message
@@ -162,8 +172,15 @@ class ChatViewModel(
                     direction = MessageDirection.OUTGOING
                 )
 
+                Log.d(TAG, "✅ [MESSAGE_CREATED] Message object created")
+                Log.d(TAG, "   🆔 MessageID: ${message.id}")
+                Log.d(TAG, "   ⏰ Timestamp: ${message.timestamp}")
+                Log.d(TAG, "   📊 Status: ${message.status}")
+
                 // Send via repository
+                Log.d(TAG, "📤 [CALLING_REPOSITORY] Calling messageRepository.sendMessage()")
                 messageRepository.sendMessage(message)
+                Log.d(TAG, "✅ [REPOSITORY_RETURNED] messageRepository.sendMessage() returned")
 
                 // Clear input
                 _messageText.value = ""

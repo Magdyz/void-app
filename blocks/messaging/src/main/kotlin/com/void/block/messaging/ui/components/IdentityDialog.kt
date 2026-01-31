@@ -15,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -31,11 +32,12 @@ import kotlinx.coroutines.launch
  * Features:
  * - Shows formatted three-word identity (e.g., "ghost.paper.forty")
  * - One-tap copy button
- * - QR code placeholder
+ * - QR code for contact exchange
  */
 @Composable
 fun IdentityDialog(
     identity: String,
+    qrCodeJson: String? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -136,46 +138,78 @@ fun IdentityDialog(
 
                 Divider()
 
-                // QR Code placeholder
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        text = "QR Code",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .size(200.dp)
-                            .background(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outline,
-                                shape = RoundedCornerShape(12.dp)
-                            ),
-                        contentAlignment = Alignment.Center
+                // QR Code section
+                if (qrCodeJson != null) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text(
-                            text = "QR Code\nPlaceholder",
-                            style = MaterialTheme.typography.bodyMedium,
+                            text = "QR Code",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        // Generate QR code at higher resolution for better scanning
+                        var qrBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+
+                        LaunchedEffect(qrCodeJson) {
+                            qrBitmap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                                try {
+                                    // Generate at 600px for crisp display and better scanning
+                                    com.void.slate.util.QRCodeGenerator.generateQRCode(qrCodeJson, 600)
+                                } catch (e: Exception) {
+                                    null
+                                }
+                            }
+                        }
+
+                        // Larger QR code for easier scanning
+                        Box(
+                            modifier = Modifier
+                                .size(280.dp)
+                                .background(
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = MaterialTheme.colorScheme.outline,
+                                    shape = RoundedCornerShape(12.dp)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            qrBitmap?.let { bitmap ->
+                                androidx.compose.foundation.Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = "QR Code for $identity",
+                                    modifier = Modifier.fillMaxSize().padding(12.dp)
+                                )
+                            } ?: run {
+                                Text(
+                                    text = "QR Code\nGeneration\nFailed",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Share this QR code to let others add you",
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
                         )
-                    }
 
-                    Text(
-                        text = "Share this QR code to let others add you",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
+                        Text(
+                            text = "Auto-refreshes every 5 minutes",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
 
                 // Snackbar host for copy confirmation

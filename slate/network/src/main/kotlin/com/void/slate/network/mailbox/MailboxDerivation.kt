@@ -8,10 +8,16 @@ import java.util.concurrent.TimeUnit
  * Derives blind mailbox addresses for anonymous message delivery.
  *
  * ## Privacy Architecture
- * - Mailboxes are derived from user's identity seed using time-based epochs
+ * - Mailboxes are derived from user's mailbox seed using time-based epochs
  * - Server sees only opaque mailbox hashes, never the actual identity
  * - Mailboxes rotate every 25 hours for forward secrecy
  * - Sender and recipient independently derive the same mailbox address
+ *
+ * 🔒 SECURITY (Phase 3):
+ * - Uses mailboxSeed (NOT identitySeed) for derivation
+ * - mailboxSeed is derived from identitySeed via HKDF("mailbox-seed")
+ * - mailboxSeed CAN BE SHARED (e.g., via QR code) - it cannot derive private keys
+ * - Domain separation ensures mailboxSeed cannot derive encryption/signing keys
  *
  * ## Mailbox Format
  * - 64-character hex string (32 bytes)
@@ -26,7 +32,7 @@ import java.util.concurrent.TimeUnit
  * ## Usage
  * ```kotlin
  * val derivation = MailboxDerivation(crypto)
- * val currentMailbox = derivation.deriveMailbox(identitySeed, System.currentTimeMillis())
+ * val currentMailbox = derivation.deriveMailbox(mailboxSeed, System.currentTimeMillis())
  * ```
  */
 class MailboxDerivation(
@@ -34,48 +40,51 @@ class MailboxDerivation(
 ) {
 
     /**
-     * Derive the current mailbox address for a given identity.
+     * Derive the current mailbox address for a given mailbox seed.
      *
-     * @param identitySeed The user's 32-byte identity seed
+     * 🔒 SECURITY: mailboxSeed is SAFE TO SHARE - it cannot derive private keys.
+     * It is derived from identitySeed via HKDF with domain "mailbox-seed".
+     *
+     * @param mailboxSeed The user's 32-byte mailbox seed (NOT identity seed!)
      * @param timestamp Current timestamp in milliseconds (for epoch calculation)
-     * @return 32-character hex mailbox hash
+     * @return 64-character hex mailbox hash
      */
-    suspend fun deriveMailbox(identitySeed: ByteArray, timestamp: Long = System.currentTimeMillis()): String {
-        require(identitySeed.size == 32) { "Identity seed must be 32 bytes" }
+    suspend fun deriveMailbox(mailboxSeed: ByteArray, timestamp: Long = System.currentTimeMillis()): String {
+        require(mailboxSeed.size == 32) { "Mailbox seed must be 32 bytes" }
 
         val epoch = calculateEpoch(timestamp)
         android.util.Log.d("MailboxDerivation", "🕒 [EPOCH_CALC] timestamp=$timestamp ms → epoch=$epoch (duration=${EPOCH_DURATION_MS}ms)")
-        return deriveMailboxForEpoch(identitySeed, epoch)
+        return deriveMailboxForEpoch(mailboxSeed, epoch)
     }
 
     /**
      * Derive mailbox address for a specific epoch.
      * Useful for checking future/past mailboxes during rotation windows.
      *
-     * @param identitySeed The user's 32-byte identity seed
+     * @param mailboxSeed The user's 32-byte mailbox seed
      * @param epoch The epoch number (timestamp / 25 hours)
-     * @return 32-character hex mailbox hash
+     * @return 64-character hex mailbox hash
      */
-    suspend fun deriveMailboxForEpoch(identitySeed: ByteArray, epoch: Long): String {
-        require(identitySeed.size == 32) { "Identity seed must be 32 bytes" }
+    suspend fun deriveMailboxForEpoch(mailboxSeed: ByteArray, epoch: Long): String {
+        require(mailboxSeed.size == 32) { "Mailbox seed must be 32 bytes" }
 
         // DEBUG: Log full derivation inputs
-        val seedHex = identitySeed.joinToString("") { "%02x".format(it) }
+        val seedHex = mailboxSeed.joinToString("") { "%02x".format(it) }
         android.util.Log.d("MailboxDerivation", "🔍 [MAILBOX_DERIVE]")
-        android.util.Log.d("MailboxDerivation", "🔍   Identity Seed (full): $seedHex")
+        android.util.Log.d("MailboxDerivation", "🔍   Mailbox Seed (first 16 bytes): ${seedHex.take(32)}...")
         android.util.Log.d("MailboxDerivation", "🔍   Epoch: $epoch")
 
-        // Derive mailbox using KDF: HMAC-SHA256(seed, "mailbox/epoch/{epoch}")
-        val derivationPath = "mailbox/epoch/$epoch"
-        val derived = crypto.derive(identitySeed, derivationPath)
+        // Derive mailbox using KDF: HKDF(mailboxSeed, "epoch/{epoch}")
+        val derivationPath = "epoch/$epoch"
+        val derived = crypto.derive(mailboxSeed, derivationPath)
 
         android.util.Log.d("MailboxDerivation", "🔍   Derivation path: $derivationPath")
         android.util.Log.d("MailboxDerivation", "🔍   Derived KDF output: ${derived.joinToString("") { "%02x".format(it) }}")
 
-        // Hash to 16 bytes for mailbox address
+        // Hash to 32 bytes for mailbox address
         val mailboxBytes = hashTo16Bytes(derived)
 
-        // Convert to 32-character hex string
+        // Convert to 64-character hex string
         val mailboxHash = mailboxBytes.toHexString()
         android.util.Log.d("MailboxDerivation", "🔍   Final Mailbox Hash: $mailboxHash")
 
@@ -91,12 +100,12 @@ class MailboxDerivation(
      * - Current epoch (primary mailbox)
      * - Next epoch (for clock skew tolerance)
      *
-     * @param identitySeed The user's 32-byte identity seed
+     * @param mailboxSeed The user's 32-byte mailbox seed
      * @param timestamp Current timestamp in milliseconds
      * @return List of mailbox addresses to check (1-3 mailboxes)
      */
     suspend fun getActiveMailboxes(
-        identitySeed: ByteArray,
+        mailboxSeed: ByteArray,
         timestamp: Long = System.currentTimeMillis()
     ): List<MailboxAddress> {
         val currentEpoch = calculateEpoch(timestamp)
@@ -108,7 +117,7 @@ class MailboxDerivation(
         if (epochProgress < ROTATION_WINDOW_START_MS) {
             mailboxes.add(
                 MailboxAddress(
-                    hash = deriveMailboxForEpoch(identitySeed, currentEpoch - 1),
+                    hash = deriveMailboxForEpoch(mailboxSeed, currentEpoch - 1),
                     epoch = currentEpoch - 1,
                     isPrimary = false
                 )
@@ -118,7 +127,7 @@ class MailboxDerivation(
         // Always check current epoch (primary)
         mailboxes.add(
             MailboxAddress(
-                hash = deriveMailboxForEpoch(identitySeed, currentEpoch),
+                hash = deriveMailboxForEpoch(mailboxSeed, currentEpoch),
                 epoch = currentEpoch,
                 isPrimary = true
             )
@@ -128,7 +137,7 @@ class MailboxDerivation(
         if (epochProgress > ROTATION_WINDOW_END_MS) {
             mailboxes.add(
                 MailboxAddress(
-                    hash = deriveMailboxForEpoch(identitySeed, currentEpoch + 1),
+                    hash = deriveMailboxForEpoch(mailboxSeed, currentEpoch + 1),
                     epoch = currentEpoch + 1,
                     isPrimary = false
                 )

@@ -105,18 +105,52 @@ class MessageEncryption(
 
     /**
      * Serialize encrypted message to bytes for transmission.
+     *
+     * Format: [VERSION_BYTE][JSON_PAYLOAD]
+     * - Version byte allows efficient protocol detection without parsing JSON
+     * - 0x01 = V1 (current static DH)
+     * - 0x02 = V2 (Double Ratchet, future)
      */
     fun serializeEncryptedMessage(encrypted: EncryptedMessage): ByteArray {
         val jsonString = json.encodeToString(EncryptedMessage.serializer(), encrypted)
-        return jsonString.toByteArray()
+        val jsonBytes = jsonString.toByteArray()
+
+        // Prepend version byte (0x01 for V1, 0x02 for V2)
+        val versionByte = encrypted.version.toByte()
+        return byteArrayOf(versionByte) + jsonBytes
     }
 
     /**
      * Deserialize encrypted message from bytes.
+     *
+     * Format: [VERSION_BYTE][JSON_PAYLOAD]
+     * - Reads version byte to determine protocol version
+     * - Falls back to V1 for backward compatibility
      */
     fun deserializeEncryptedMessage(bytes: ByteArray): EncryptedMessage {
-        val jsonString = bytes.decodeToString()
-        return json.decodeFromString(EncryptedMessage.serializer(), jsonString)
+        require(bytes.isNotEmpty()) { "Cannot deserialize empty message" }
+
+        // Read version byte
+        val versionByte = bytes[0].toInt()
+        val jsonBytes = bytes.drop(1).toByteArray()
+
+        return when (versionByte) {
+            0x01 -> {
+                // V1 format (current)
+                val jsonString = jsonBytes.decodeToString()
+                json.decodeFromString(EncryptedMessage.serializer(), jsonString)
+            }
+            0x02 -> {
+                // V2 format (Double Ratchet - to be implemented)
+                throw UnsupportedOperationException("V2 not yet implemented")
+            }
+            else -> {
+                // Unknown version - try V1 for backward compatibility
+                // This handles messages from before version byte was added
+                val jsonString = bytes.decodeToString()
+                json.decodeFromString(EncryptedMessage.serializer(), jsonString)
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -181,6 +215,22 @@ class MessageEncryption(
 
     companion object {
         private const val PROTOCOL_VERSION = 1
+
+        /**
+         * Detect protocol version from encrypted payload without full deserialization.
+         *
+         * @param payload Encrypted message bytes
+         * @return Protocol version (1, 2, etc.) or null if unknown
+         */
+        fun detectVersion(payload: ByteArray): Int? {
+            if (payload.isEmpty()) return null
+
+            return when (payload[0].toInt()) {
+                0x01 -> 1
+                0x02 -> 2
+                else -> null  // Unknown version
+            }
+        }
     }
 }
 

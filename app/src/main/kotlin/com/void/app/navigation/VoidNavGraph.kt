@@ -8,7 +8,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -242,6 +245,53 @@ fun VoidNavGraph(
                 value = identityRepository.getIdentity()?.formatted
             }
 
+            // QR code with auto-regeneration every 5 minutes
+            var qrCodeJson by remember { mutableStateOf<String?>(null) }
+            var qrGenerationCount by remember { mutableStateOf(0) }
+
+            // Auto-regenerate QR code every 5 minutes
+            LaunchedEffect(qrGenerationCount) {
+                try {
+                    val identity = identityRepository.getIdentity()
+                    val publicKey = identityRepository.getPublicEncryptionKey()
+                    val identityKey = identityRepository.getPublicIdentityKey()
+                    val mailboxSeed = identityRepository.getMailboxSeed()
+
+                    android.util.Log.d("VOID_QR", "🔍 [QR_GENERATE] Generating QR code data (generation #$qrGenerationCount):")
+                    android.util.Log.d("VOID_QR", "  Identity: ${identity?.formatted}")
+                    android.util.Log.d("VOID_QR", "  PublicKey: ${publicKey?.size} bytes")
+                    android.util.Log.d("VOID_QR", "  IdentityKey: ${identityKey?.size} bytes")
+                    android.util.Log.d("VOID_QR", "  MailboxSeed: ${mailboxSeed?.size} bytes (first 16: ${mailboxSeed?.take(16)?.joinToString("") { "%02x".format(it) }})")
+
+                    if (identity != null && publicKey != null && identityKey != null && mailboxSeed != null) {
+                        val threeWordIdentity = com.void.block.contacts.domain.ThreeWordIdentity(
+                            word1 = identity.words[0],
+                            word2 = identity.words[1],
+                            word3 = identity.words[2]
+                        )
+                        val qrData = com.void.block.contacts.domain.ContactQRData(
+                            identity = threeWordIdentity,
+                            publicKey = android.util.Base64.encodeToString(publicKey, android.util.Base64.NO_WRAP),
+                            identityKey = android.util.Base64.encodeToString(identityKey, android.util.Base64.NO_WRAP),
+                            mailboxSeed = android.util.Base64.encodeToString(mailboxSeed, android.util.Base64.NO_WRAP),
+                            timestamp = System.currentTimeMillis()
+                        )
+                        android.util.Log.d("VOID_QR", "✅ [QR_GENERATE] QR data created, JSON length: ${qrData.toJson().length}")
+                        qrCodeJson = qrData.toJson()
+
+                        // Auto-regenerate after 5 minutes
+                        kotlinx.coroutines.delay(5 * 60 * 1000L) // 5 minutes
+                        qrGenerationCount++
+                        android.util.Log.d("VOID_QR", "⏰ [QR_REGENERATE] Triggering regeneration...")
+                    } else {
+                        android.util.Log.e("VOID_QR", "❌ [QR_GENERATE] Missing required data!")
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("VOID_QR", "❌ [QR_GENERATE] Failed to generate QR code JSON", e)
+                    qrCodeJson = null
+                }
+            }
+
             com.void.block.messaging.ui.ConversationListScreen(
                 onConversationClick = { conversationId ->
                     // Use conversationId as contactId for 1:1 chats
@@ -250,7 +300,8 @@ fun VoidNavGraph(
                 onNewConversation = {
                     navController.navigate(Routes.CONTACTS_LIST)
                 },
-                userIdentity = userIdentity
+                userIdentity = userIdentity,
+                qrCodeJson = qrCodeJson
             )
         }
 
@@ -294,7 +345,15 @@ fun VoidNavGraph(
         }
 
         composable(Routes.CONTACTS_SCAN) {
-            androidx.compose.material3.Text("QR Scanner - Coming Soon")
+            com.void.block.contacts.ui.screens.ScanQRScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onContactAdded = { contactId ->
+                    // Navigate to chat with new contact
+                    navController.navigate("messages/chat/$contactId") {
+                        popUpTo(Routes.CONTACTS_LIST) { inclusive = false }
+                    }
+                }
+            )
         }
     }
 }

@@ -15,9 +15,11 @@ import com.void.slate.network.supabase.MessageRecord
 import com.void.slate.network.mailbox.MailboxDerivation
 import com.void.slate.storage.SecureStorage
 import android.util.Base64
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import com.void.block.messaging.sync.SyncDebouncer
@@ -99,22 +101,33 @@ class MessageRepository(
      * Stores locally first, then transmits via network if available.
      */
     suspend fun sendMessage(message: Message) {
+        Log.d(TAG, "📥 [REPO_RECEIVED] MessageRepository.sendMessage() called")
+        Log.d(TAG, "   🆔 MessageID: ${message.id}")
+        Log.d(TAG, "   👤 RecipientID: ${message.recipientId}")
+
         // 1. Store message locally first (with SENDING status)
+        Log.d(TAG, "💾 [STORING_LOCAL] Storing message locally...")
         storeMessageLocally(message)
+        Log.d(TAG, "✅ [STORED_LOCAL] Message stored locally")
 
         // 2. Send via network if available
-        messageSender?.let { sender ->
-            sendMessageViaNetwork(message, sender)
+        if (messageSender == null) {
+            Log.e(TAG, "❌ [NO_SENDER] messageSender is NULL! Message will not be sent to network!")
+            Log.e(TAG, "   ⚠️  This means MessageSender was not injected via DI")
+        } else {
+            Log.d(TAG, "✅ [SENDER_AVAILABLE] messageSender is available, proceeding to network send")
+            sendMessageViaNetwork(message, messageSender)
         }
 
         // 3. Update conversation state for INSTANT-VOID adaptive mode (if enabled)
         conversationStateManager?.updateConversation(message.conversationId, message.timestamp)
+        Log.d(TAG, "✅ [REPO_COMPLETE] MessageRepository.sendMessage() completed")
     }
 
     /**
      * Store message in local storage.
      */
-    private suspend fun storeMessageLocally(message: Message) {
+    private suspend fun storeMessageLocally(message: Message) = withContext(Dispatchers.IO) {
         // Store message
         val messageKey = "$KEY_PREFIX_MESSAGE${message.id}"
         val messageJson = json.encodeToString(message)
@@ -158,21 +171,42 @@ class MessageRepository(
      * Encrypts message content before transmission.
      */
     private suspend fun sendMessageViaNetwork(message: Message, sender: MessageSender) {
+        Log.d(TAG, "🌐 [NETWORK_SEND_START] sendMessageViaNetwork() called")
+        Log.d(TAG, "   🆔 MessageID: ${message.id}")
+        Log.d(TAG, "   👤 RecipientID: ${message.recipientId}")
+
         // Get recipient identity
-        val recipientIdentity = encryptionService?.getRecipientIdentity(message.recipientId)
-        if (recipientIdentity == null) {
-            Log.e(TAG, "❌ [SEND_FAILED] Recipient identity not found: ${message.recipientId}")
+        Log.d(TAG, "🔍 [GETTING_IDENTITY] Looking up recipient identity...")
+        if (encryptionService == null) {
+            Log.e(TAG, "❌ [NO_ENCRYPTION_SERVICE] encryptionService is NULL!")
             updateMessageStatus(message.id, MessageStatus.FAILED)
             return
         }
 
+        val recipientIdentity = encryptionService.getRecipientIdentity(message.recipientId)
+        if (recipientIdentity == null) {
+            Log.e(TAG, "❌ [SEND_FAILED] Recipient identity not found: ${message.recipientId}")
+            Log.e(TAG, "   ⚠️  This means the contact doesn't have identity info (seed/public key)")
+            updateMessageStatus(message.id, MessageStatus.FAILED)
+            return
+        }
+
+        // 🆕 SECURITY AUDIT: Log recipient details for mailbox verification
+        Log.d(TAG, "✅ [IDENTITY_FOUND] Recipient identity found")
+        Log.d(TAG, "   👤 ContactID: ${message.recipientId}")
+        Log.d(TAG, "   🏷️  Three-word identity: ${recipientIdentity.threeWordIdentity}")
+        Log.d(TAG, "   🔑 MailboxSeed (first 16 bytes): ${recipientIdentity.seed.take(16).joinToString("") { "%02x".format(it) }}")
+
         // Encrypt message content
+        Log.d(TAG, "🔐 [ENCRYPTING] Encrypting message content...")
         val encryptedPayload = if (encryptionService != null) {
             val encrypted = encryptionService.encryptMessage(message.content, message.recipientId)
             if (encrypted == null) {
+                Log.e(TAG, "❌ [ENCRYPTION_FAILED] Failed to encrypt message")
                 updateMessageStatus(message.id, MessageStatus.FAILED)
                 return
             }
+            Log.d(TAG, "✅ [ENCRYPTED] Message encrypted successfully (${encrypted.size} bytes)")
             encrypted
         } else {
             // Fallback: no encryption (for testing only)
@@ -180,17 +214,26 @@ class MessageRepository(
             message.encryptedPayload ?: json.encodeToString(message).toByteArray()
         }
 
-        // Send message to Supabase using recipient's seed
+        // Send message to Supabase using recipient's mailbox seed
+        Log.d(TAG, "📡 [CALLING_SENDER] Calling sender.sendMessage()...")
+        Log.d(TAG, "   📦 Payload size: ${encryptedPayload.size} bytes")
+        Log.d(TAG, "   ⏰ Timestamp: ${message.timestamp}")
+
         val result = sender.sendMessage(
-            recipientSeed = recipientIdentity.seed,
+            recipientMailboxSeed = recipientIdentity.seed,
             encryptedPayload = encryptedPayload,
             timestamp = message.timestamp
         )
 
+        Log.d(TAG, "✅ [SENDER_RETURNED] sender.sendMessage() returned")
+
         result.onSuccess { messageId ->
             // Update message status to SENT
+            Log.d(TAG, "✅ [SEND_SUCCESS] Message sent successfully!")
+            Log.d(TAG, "   🆔 LocalMessageID: ${message.id}")
+            Log.d(TAG, "   🌐 SupabaseID: $messageId")
             updateMessageStatus(message.id, MessageStatus.SENT)
-            Log.d(TAG, "✓ [MESSAGE_SENT] messageId=${message.id}, supabaseId=$messageId")
+            Log.d(TAG, "✓ [MESSAGE_SENT] Status updated to SENT")
 
             // Send immediate cover traffic (1-2 decoys) to obscure the real message
             val decoyCount = kotlin.random.Random.nextInt(1, 3) // 1-2 decoys
@@ -204,10 +247,15 @@ class MessageRepository(
             }
         }.onFailure { error ->
             // Update message status to FAILED
+            Log.e(TAG, "❌ [SEND_FAILURE] Message send FAILED!")
+            Log.e(TAG, "   📛 Error: ${error.message}")
+            Log.e(TAG, "   📚 Stack trace:", error)
             updateMessageStatus(message.id, MessageStatus.FAILED)
-            Log.e(TAG, "❌ [MESSAGE_FAILED] ${error.message}", error)
+            Log.e(TAG, "   📊 Status updated to FAILED")
             // TODO: Emit error event via EventBus
         }
+
+        Log.d(TAG, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     /**
@@ -506,7 +554,7 @@ class MessageRepository(
      * Returns the number of new messages received.
      *
      * @param since Optional timestamp to fetch messages from (default: now)
-     * @param force If true, bypasses debouncing (uses 30s emergency interval instead of 5min)
+     * @param force If true, bypasses debouncing (uses 10s emergency interval instead of 5min)
      * @return Number of new messages received, or -1 if skipped due to debouncing
      */
     suspend fun syncMessages(since: Long? = null, force: Boolean = false): Int {
@@ -552,7 +600,9 @@ class MessageRepository(
 
         // DEBUG: Log full mailbox hashes for diagnosis
         Log.d(TAG, "🔍 [RECEIVER_MAILBOX] Checking ${activeMailboxes.size} active mailboxes:")
-        Log.d(TAG, "🔍   Own seed (first 16 bytes): ${userIdentity.seed.take(16).joinToString("") { "%02x".format(it) }}")
+        Log.d(TAG, "🔍   My identity: ${userIdentity.threeWordIdentity}")
+        Log.d(TAG, "🔍   My mailboxSeed (first 16 bytes): ${userIdentity.seed.take(16).joinToString("") { "%02x".format(it) }}")
+        Log.d(TAG, "🔍   (This seed MUST match the mailboxSeed in my QR code)")
         activeMailboxes.forEachIndexed { index, mailbox ->
             val marker = if (mailbox.isPrimary) "PRIMARY" else "SECONDARY"
             Log.d(TAG, "🔍   [$marker] Mailbox $index: ${mailbox.hash} (epoch=${mailbox.epoch})")

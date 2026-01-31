@@ -68,6 +68,18 @@ interface CryptoProvider {
      * @return 32-byte shared secret
      */
     suspend fun computeSharedSecret(privateKey: ByteArray, publicKey: ByteArray): ByteArray
+
+    /**
+     * Compute HMAC-SHA256 for message authentication.
+     *
+     * Used in Double Ratchet protocol for authenticating encrypted messages.
+     * HMAC provides integrity and authenticity - ensures message hasn't been tampered with.
+     *
+     * @param key HMAC key (32 bytes recommended)
+     * @param data Data to authenticate
+     * @return 32-byte HMAC tag
+     */
+    suspend fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray
 }
 
 /**

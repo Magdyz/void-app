@@ -32,6 +32,7 @@ class ConstellationUnlockViewModel(
     private var storedPatternLength: Int = ConstellationSecurityManager.MIN_LANDMARKS  // Actual stored pattern length
     private var isV2Pattern: Boolean = false
     private var isInitialized: Boolean = false  // Prevent multiple initializations
+    private var isProcessingTap: Boolean = false  // Prevent concurrent tap processing
 
     init {
         // Check if biometric is enabled
@@ -97,6 +98,12 @@ class ConstellationUnlockViewModel(
         val currentState = _state.value
         if (currentState !is ConstellationUnlockState.Ready) return
 
+        // DEBOUNCE: Prevent concurrent tap processing
+        if (isProcessingTap) {
+            println("VOID_DEBUG: UnlockVM - Tap ignored (already processing)")
+            return
+        }
+
         println("VOID_DEBUG: UnlockVM - Tap received at (${tap.x}, ${tap.y}), isV2: ${currentState.isV2}")
 
         val currentTaps = currentState.tappedStars
@@ -106,26 +113,37 @@ class ConstellationUnlockViewModel(
             return
         }
 
-        // For V2, check if tap hits a landmark
-        if (currentState.isV2) {
-            val hitLandmark = matcher.findNearestLandmark(tap, currentState.landmarks)
-            if (hitLandmark == null) {
-                println("VOID_DEBUG: UnlockVM - Tap missed all landmarks, ignoring")
-                return
+        isProcessingTap = true
+
+        // PERFORMANCE: Move landmark hit-testing to background thread
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                // For V2, check if tap hits a landmark
+                if (currentState.isV2) {
+                    val hitLandmark = matcher.findNearestLandmark(tap, currentState.landmarks)
+                    if (hitLandmark == null) {
+                        println("VOID_DEBUG: UnlockVM - Tap missed all landmarks, ignoring")
+                        return@launch
+                    }
+                }
+
+                val newTaps = currentTaps + tap
+
+                println("VOID_DEBUG: UnlockVM - Taps: ${newTaps.size}/${storedPatternLength}")
+
+                withContext(Dispatchers.Main) {
+                    _state.value = currentState.copy(tappedStars = newTaps)
+                }
+
+                // Auto-attempt unlock when stored pattern length is reached
+                // This ensures we wait for the full pattern before attempting unlock
+                if (newTaps.size >= storedPatternLength) {
+                    println("VOID_DEBUG: UnlockVM - Attempting unlock with ${newTaps.size} taps (expected: $storedPatternLength)")
+                    attemptUnlock(newTaps, currentState.landmarks, currentState.isV2, screenWidth, screenHeight)
+                }
+            } finally {
+                isProcessingTap = false
             }
-        }
-
-        val newTaps = currentTaps + tap
-
-        println("VOID_DEBUG: UnlockVM - Taps: ${newTaps.size}/${storedPatternLength}")
-
-        _state.value = currentState.copy(tappedStars = newTaps)
-
-        // Auto-attempt unlock when stored pattern length is reached
-        // This ensures we wait for the full pattern before attempting unlock
-        if (newTaps.size >= storedPatternLength) {
-            println("VOID_DEBUG: UnlockVM - Attempting unlock with ${newTaps.size} taps (expected: $storedPatternLength)")
-            attemptUnlock(newTaps, currentState.landmarks, currentState.isV2, screenWidth, screenHeight)
         }
     }
 
@@ -190,6 +208,7 @@ class ConstellationUnlockViewModel(
     }
 
     fun onReset() {
+        isProcessingTap = false  // Reset tap processing flag
         val currentState = _state.value
         if (currentState is ConstellationUnlockState.Ready) {
             _state.value = currentState.copy(tappedStars = emptyList())

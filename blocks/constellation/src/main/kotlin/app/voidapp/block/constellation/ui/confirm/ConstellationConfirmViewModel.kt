@@ -27,6 +27,7 @@ class ConstellationConfirmViewModel(
     val state: StateFlow<ConstellationConfirmState> = _state.asStateFlow()
 
     private var generationMetadata: StarGenerator.GenerationMetadata? = null
+    private var isProcessingTap: Boolean = false  // Prevent concurrent tap processing
 
     fun initialize(
         firstPattern: LandmarkPattern,  // V2: Use LandmarkPattern
@@ -55,6 +56,12 @@ class ConstellationConfirmViewModel(
         val currentState = _state.value
         if (currentState !is ConstellationConfirmState.Ready) return
 
+        // DEBOUNCE: Prevent concurrent tap processing
+        if (isProcessingTap) {
+            println("VOID_DEBUG: ConfirmVM - Tap ignored (already processing)")
+            return
+        }
+
         println("VOID_DEBUG: ConfirmVM - Tap received at (${tap.x}, ${tap.y})")
 
         val currentTaps = currentState.tappedStars
@@ -65,20 +72,31 @@ class ConstellationConfirmViewModel(
             return
         }
 
-        // Check if tap hits a landmark before adding it
-        val hitLandmark = matcher.findNearestLandmark(tap, currentState.landmarks)
-        if (hitLandmark == null) {
-            println("VOID_DEBUG: ConfirmVM - Tap missed all landmarks, ignoring")
-            return
+        isProcessingTap = true
+
+        // PERFORMANCE: Move landmark hit-testing to background thread
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                // Check if tap hits a landmark before adding it
+                val hitLandmark = matcher.findNearestLandmark(tap, currentState.landmarks)
+                if (hitLandmark == null) {
+                    println("VOID_DEBUG: ConfirmVM - Tap missed all landmarks, ignoring")
+                    return@launch
+                }
+
+                val newTaps = currentTaps + tap
+
+                println("VOID_DEBUG: ConfirmVM - Taps: ${newTaps.size}/${requiredCount}")
+
+                withContext(Dispatchers.Main) {
+                    _state.value = currentState.copy(tappedStars = newTaps)
+                }
+
+                // Don't auto-confirm - wait for user to press Confirm button
+            } finally {
+                isProcessingTap = false
+            }
         }
-
-        val newTaps = currentTaps + tap
-
-        println("VOID_DEBUG: ConfirmVM - Taps: ${newTaps.size}/${requiredCount}")
-
-        _state.value = currentState.copy(tappedStars = newTaps)
-
-        // Don't auto-confirm - wait for user to press Confirm button
     }
 
     fun confirmPattern(screenWidth: Int, screenHeight: Int) {
@@ -165,6 +183,7 @@ class ConstellationConfirmViewModel(
     }
 
     fun onReset() {
+        isProcessingTap = false  // Reset tap processing flag
         val currentState = _state.value
         if (currentState is ConstellationConfirmState.Ready) {
             _state.value = currentState.copy(

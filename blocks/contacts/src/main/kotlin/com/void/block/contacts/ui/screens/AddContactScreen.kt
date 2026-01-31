@@ -1,6 +1,7 @@
 package com.void.block.contacts.ui.screens
 
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -8,19 +9,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -105,161 +98,81 @@ fun AddContactScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(24.dp)
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            // WORD 01 Input
+            // Security info
             Text(
-                text = "WORD 01",
-                style = TerminalStandard.Body,
+                text = "SECURE CONNECTION",
+                style = TerminalStandard.Header,
                 color = TerminalStandard.Text
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = identityInput.split(".").getOrNull(0) ?: "",
-                onValueChange = { newWord ->
-                    val parts = identityInput.split(".")
-                    val word2 = parts.getOrNull(1) ?: ""
-                    val word3 = parts.getOrNull(2) ?: ""
-                    viewModel.onIdentityChanged(buildString {
-                        append(newWord)
-                        if (word2.isNotEmpty() || word3.isNotEmpty()) append(".$word2")
-                        if (word3.isNotEmpty()) append(".$word3")
-                    })
-                },
-                placeholder = {
-                    Text(
-                        text = "[___________]",
-                        style = TerminalStandard.Input,
-                        color = TerminalStandard.TextSecondary
-                    )
-                },
-                textStyle = TerminalStandard.Input,
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(0.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = TerminalStandard.Text,
-                    unfocusedBorderColor = TerminalStandard.Border,
-                    focusedTextColor = TerminalStandard.Text,
-                    unfocusedTextColor = TerminalStandard.Text,
-                    cursorColor = TerminalStandard.Text,
-                    focusedContainerColor = TerminalStandard.Background,
-                    unfocusedContainerColor = TerminalStandard.Background
-                )
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // WORD 02 Input
-            Text(
-                text = "WORD 02",
-                style = TerminalStandard.Body,
-                color = TerminalStandard.Text
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = identityInput.split(".").getOrNull(1) ?: "",
-                onValueChange = { newWord ->
-                    val parts = identityInput.split(".")
-                    val word1 = parts.getOrNull(0) ?: ""
-                    val word3 = parts.getOrNull(2) ?: ""
-                    viewModel.onIdentityChanged(buildString {
-                        append(word1)
-                        append(".")
-                        append(newWord)
-                        if (word3.isNotEmpty()) append(".$word3")
-                    })
-                },
-                placeholder = {
-                    Text(
-                        text = "[___________]",
-                        style = TerminalStandard.Input,
-                        color = TerminalStandard.TextSecondary
-                    )
-                },
-                textStyle = TerminalStandard.Input,
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(0.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = TerminalStandard.Text,
-                    unfocusedBorderColor = TerminalStandard.Border,
-                    focusedTextColor = TerminalStandard.Text,
-                    unfocusedTextColor = TerminalStandard.Text,
-                    cursorColor = TerminalStandard.Text,
-                    focusedContainerColor = TerminalStandard.Background,
-                    unfocusedContainerColor = TerminalStandard.Background
-                )
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // WORD 03 Input
-            Text(
-                text = "WORD 03",
-                style = TerminalStandard.Body,
-                color = TerminalStandard.Text
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = identityInput.split(".").getOrNull(2) ?: "",
-                onValueChange = { newWord ->
-                    val parts = identityInput.split(".")
-                    val word1 = parts.getOrNull(0) ?: ""
-                    val word2 = parts.getOrNull(1) ?: ""
-                    viewModel.onIdentityChanged("$word1.$word2.$newWord")
-                },
-                placeholder = {
-                    Text(
-                        text = "[___________]",
-                        style = TerminalStandard.Input,
-                        color = TerminalStandard.TextSecondary
-                    )
-                },
-                textStyle = TerminalStandard.Input,
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(0.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = TerminalStandard.Text,
-                    unfocusedBorderColor = TerminalStandard.Border,
-                    focusedTextColor = TerminalStandard.Text,
-                    unfocusedTextColor = TerminalStandard.Text,
-                    cursorColor = TerminalStandard.Text,
-                    focusedContainerColor = TerminalStandard.Background,
-                    unfocusedContainerColor = TerminalStandard.Background
-                )
             )
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Add contact button
-            val allFieldsFilled = identityInput.split(".").size == 3 &&
-                identityInput.split(".").all { it.isNotBlank() }
+            // Info box
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, TerminalStandard.Border, RoundedCornerShape(0.dp))
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "// To add a contact securely:",
+                    style = TerminalStandard.Body,
+                    color = TerminalStandard.TextSecondary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "1. Meet in person",
+                    style = TerminalStandard.Body,
+                    color = TerminalStandard.Text
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "2. Scan their QR code",
+                    style = TerminalStandard.Body,
+                    color = TerminalStandard.Text
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "3. Start messaging",
+                    style = TerminalStandard.Body,
+                    color = TerminalStandard.Text
+                )
+            }
 
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // Security note
+            Text(
+                text = "QR codes contain encrypted keys",
+                style = TerminalStandard.Body,
+                color = TerminalStandard.TextSecondary,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "and expire after 5 minutes",
+                style = TerminalStandard.Body,
+                color = TerminalStandard.TextSecondary,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            // Scan QR button
             TextButton(
-                onClick = { viewModel.addContact() },
-                enabled = allFieldsFilled,
+                onClick = onNavigateToScanQR,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.textButtonColors(
-                    containerColor = if (allFieldsFilled) TerminalStandard.Text else TerminalStandard.Disabled,
-                    contentColor = TerminalStandard.Background,
-                    disabledContainerColor = TerminalStandard.Disabled,
-                    disabledContentColor = TerminalStandard.TextSecondary
+                    containerColor = TerminalStandard.Text,
+                    contentColor = TerminalStandard.Background
                 )
             ) {
                 Text(
-                    text = if (allFieldsFilled) {
-                        TerminalStandard.bracketLabel("CONNECT")
-                    } else {
-                        TerminalStandard.bracketLabel("ENTER ID")
-                    },
+                    text = TerminalStandard.bracketLabel("SCAN QR CODE"),
                     style = TerminalStandard.Button
                 )
             }

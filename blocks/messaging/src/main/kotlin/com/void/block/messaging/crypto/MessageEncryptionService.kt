@@ -74,9 +74,14 @@ data class DecryptedReceivedMessage(
 
 /**
  * Recipient identity for message sending and mailbox derivation.
+ *
+ * 🔒 SECURITY: The seed field MUST be the mailbox seed, NOT the identity seed.
+ * - Mailbox seed is SAFE TO SHARE (cannot derive private keys)
+ * - Used ONLY for deriving mailbox addresses
+ * - Identity seed MUST NEVER be shared or used here
  */
 data class RecipientIdentity(
-    /** The recipient's 32-byte identity seed for mailbox derivation */
+    /** The recipient's 32-byte MAILBOX SEED (NOT identity seed!) for mailbox derivation */
     val seed: ByteArray,
     /** The recipient's three-word identity (e.g., "ghost.paper.forty") */
     val threeWordIdentity: String

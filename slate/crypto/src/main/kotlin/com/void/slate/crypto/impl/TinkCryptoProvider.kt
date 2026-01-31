@@ -15,6 +15,7 @@ import kotlinx.coroutines.withContext
 import java.security.GeneralSecurityException
 import java.security.MessageDigest
 import java.security.SecureRandom
+import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 /**
@@ -224,6 +225,19 @@ class TinkCryptoProvider : CryptoProvider {
             X25519.computeSharedSecret(privateKey, publicKey)
         } catch (e: Exception) {
             throw RuntimeException("ECDH key agreement failed", e)
+        }
+    }
+
+    override suspend fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray = withContext(Dispatchers.Default) {
+        try {
+            // Use javax.crypto.Mac for HMAC-SHA256
+            // This is the standard way, used by Tink internally
+            val mac = Mac.getInstance("HmacSHA256")
+            val secretKey = SecretKeySpec(key, "HmacSHA256")
+            mac.init(secretKey)
+            mac.doFinal(data)
+        } catch (e: Exception) {
+            throw RuntimeException("HMAC computation failed", e)
         }
     }
 

@@ -30,16 +30,16 @@ class SyncDebouncer(
         const val DEFAULT_DEBOUNCE_INTERVAL_MS = 5 * 60 * 1000L // 5 minutes
 
         /**
-         * Emergency override interval: 30 seconds
-         * Used when force=true is requested (e.g., critical message expected)
+         * Emergency override interval: 10 seconds
+         * Used when force=true is requested (e.g., user opens chat)
          */
-        const val EMERGENCY_DEBOUNCE_INTERVAL_MS = 30 * 1000L // 30 seconds
+        const val EMERGENCY_DEBOUNCE_INTERVAL_MS = 10 * 1000L // 10 seconds
     }
 
     /**
      * Check if enough time has elapsed since the last sync.
      *
-     * @param force If true, uses emergency debounce interval (30s instead of 5min)
+     * @param force If true, uses emergency debounce interval (10s instead of 5min)
      * @return true if sync should proceed, false if it should be skipped
      */
     suspend fun shouldSync(force: Boolean = false): Boolean {

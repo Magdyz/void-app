@@ -23,8 +23,8 @@ class ConstellationMatcher(
         const val SNAP_DISTANCE_PX = 450f  // Large enough to catch nearby taps
 
         // Minimum and maximum adaptive snap distances (increased for better UX)
-        const val MIN_SNAP_DISTANCE = 350f  // More forgiving than before
-        const val MAX_SNAP_DISTANCE = 700f  // Increased from 600px
+        const val MIN_SNAP_DISTANCE = 550f  // Increased for tall screens (1344x2991)
+        const val MAX_SNAP_DISTANCE = 900f  // Increased for large screens
     }
 
     // Thread-safe cache for snap distance per landmark configuration

@@ -21,9 +21,14 @@ import java.util.UUID
  * - Server stores message temporarily (7-day TTL)
  * - Triggers silent push notification to recipient (via Edge Function)
  *
+ * 🔒 SECURITY (Phase 3):
+ * - Uses recipientMailboxSeed (NOT identitySeed) for mailbox derivation
+ * - mailboxSeed is SAFE TO SHARE (cannot derive private keys)
+ * - Domain separation ensures mailboxSeed cannot derive encryption/signing keys
+ *
  * ## Message Flow
  * 1. Client encrypts message with recipient's public key
- * 2. Derives recipient's current mailbox address
+ * 2. Derives recipient's current mailbox address from mailboxSeed
  * 3. Inserts encrypted blob to message_queue
  * 4. Server triggers Edge Function → sends FCM push (epoch only)
  * 5. Recipient wakes up, fetches from their mailbox, decrypts locally
@@ -32,7 +37,7 @@ import java.util.UUID
  * ```kotlin
  * val sender = MessageSender(supabaseClient, mailboxDerivation)
  * sender.sendMessage(
- *     recipientSeed = recipientIdentity.seed,
+ *     recipientMailboxSeed = recipientContact.mailboxSeed,
  *     encryptedPayload = encryptedMessageBlob
  * )
  * ```
@@ -46,27 +51,39 @@ class MessageSender(
     /**
      * Send an encrypted message to a recipient.
      *
-     * @param recipientSeed The recipient's 32-byte identity seed
+     * 🔒 SECURITY: Uses recipientMailboxSeed (NOT identitySeed) for mailbox derivation.
+     * mailboxSeed is SAFE TO SHARE - it cannot derive private keys.
+     *
+     * @param recipientMailboxSeed The recipient's 32-byte mailbox seed (NOT identity seed!)
      * @param encryptedPayload The E2E encrypted message payload (base64 or bytes)
      * @param timestamp Current timestamp (for mailbox derivation)
      * @return Result with message ID or error
      */
     suspend fun sendMessage(
-        recipientSeed: ByteArray,
+        recipientMailboxSeed: ByteArray,
         encryptedPayload: ByteArray,
         timestamp: Long = System.currentTimeMillis()
     ): Result<String> {
+        Log.d(TAG, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        Log.d(TAG, "🚀 [SENDER_START] MessageSender.sendMessage() called")
+        Log.d(TAG, "   📦 Payload size: ${encryptedPayload.size} bytes")
+        Log.d(TAG, "   ⏰ Timestamp: $timestamp")
+
         return try {
-            require(recipientSeed.size == 32) { "Recipient seed must be 32 bytes" }
+            Log.d(TAG, "✅ [VALIDATION_START] Validating inputs...")
+            require(recipientMailboxSeed.size == 32) { "Mailbox seed must be 32 bytes" }
             require(encryptedPayload.isNotEmpty()) { "Encrypted payload cannot be empty" }
             require(encryptedPayload.size <= MAX_MESSAGE_SIZE) {
                 "Message too large: ${encryptedPayload.size} bytes (max $MAX_MESSAGE_SIZE)"
             }
+            Log.d(TAG, "✅ [VALIDATION_OK] All inputs valid")
 
             Log.d(TAG, "📤 Sending message (${encryptedPayload.size} bytes)")
 
             // Derive recipient's current mailbox address
-            val mailboxHash = mailboxDerivation.deriveMailbox(recipientSeed, timestamp)
+            Log.d(TAG, "🔑 [DERIVING_MAILBOX] Deriving mailbox hash from seed...")
+            val mailboxHash = mailboxDerivation.deriveMailbox(recipientMailboxSeed, timestamp)
+            Log.d(TAG, "✅ [MAILBOX_DERIVED] Mailbox: $mailboxHash")
 
             // Epoch for database is Unix timestamp in seconds (not mailbox rotation epoch)
             var epoch = timestamp / 1000  // Convert milliseconds to seconds
@@ -78,7 +95,7 @@ class MessageSender(
 
             // DEBUG: Log full mailbox hash for diagnosis
             println("🔍 [SENDER_MAILBOX] Sending to mailbox:")
-            println("🔍   Recipient seed (first 16 bytes): ${recipientSeed.take(16).joinToString("") { "%02x".format(it) }}")
+            println("🔍   Recipient mailbox seed (first 16 bytes): ${recipientMailboxSeed.take(16).joinToString("") { "%02x".format(it) }}")
             println("🔍   Mailbox:   $mailboxHash")
             println("🔍   Timestamp: $timestamp")
             println("🔍   Epoch:     $epoch")
@@ -102,25 +119,40 @@ class MessageSender(
             )
 
             // DEBUG: Log insert record details
-            Log.d(TAG, "🔍 [INSERT_DEBUG] Message insert record:")
-            Log.d(TAG, "🔍   ID: $messageId")
-            Log.d(TAG, "🔍   Mailbox (full): $mailboxHash")
-            Log.d(TAG, "🔍   Epoch: $epoch")
-            Log.d(TAG, "🔍   Ciphertext size: ${ciphertextBase64.length} chars")
-            Log.d(TAG, "🔍   Expires at: $expiresAt")
+            Log.d(TAG, "🔍 [INSERT_RECORD] Creating message insert record:")
+            Log.d(TAG, "   🆔 ID: $messageId")
+            Log.d(TAG, "   📬 Mailbox (full): $mailboxHash")
+            Log.d(TAG, "   ⏰ Epoch: $epoch")
+            Log.d(TAG, "   📦 Ciphertext size: ${ciphertextBase64.length} chars")
+            Log.d(TAG, "   ⏳ Expires at: $expiresAt")
 
             // Insert into Supabase message_queue table
-            supabase
-                .from("message_queue")
-                .insert(insertRecord)
+            Log.d(TAG, "📡 [SUPABASE_INSERT] Calling supabase.from('message_queue').insert()...")
+            try {
+                supabase
+                    .from("message_queue")
+                    .insert(insertRecord)
+                Log.d(TAG, "✅ [SUPABASE_SUCCESS] Supabase insert successful!")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ [SUPABASE_ERROR] Supabase insert failed!")
+                Log.e(TAG, "   📛 Error type: ${e::class.simpleName}")
+                Log.e(TAG, "   📛 Error message: ${e.message}")
+                throw e
+            }
 
-            Log.d(TAG, "✅ Message sent successfully (ID: ${messageId.take(8)}...)")
-            Log.d(TAG, "   Server will trigger push notification to recipient")
+            Log.d(TAG, "✅ [SENDER_SUCCESS] Message sent successfully!")
+            Log.d(TAG, "   🆔 MessageID: ${messageId.take(8)}...")
+            Log.d(TAG, "   ℹ️  Server will trigger push notification to recipient")
+            Log.d(TAG, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
             Result.success(messageId)
 
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to send message: ${e.message}", e)
+            Log.e(TAG, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            Log.e(TAG, "❌ [SENDER_EXCEPTION] MessageSender caught exception!")
+            Log.e(TAG, "   📛 Exception type: ${e::class.simpleName}")
+            Log.e(TAG, "   📛 Exception message: ${e.message}")
+            Log.e(TAG, "   📚 Stack trace:", e)
 
             // Check for rate limit error
             if (e.message?.contains("Rate limit exceeded") == true) {
@@ -133,6 +165,7 @@ class MessageSender(
                 )
             }
 
+            Log.e(TAG, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             Result.failure(e)
         }
     }

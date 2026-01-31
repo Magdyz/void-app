@@ -7,6 +7,11 @@ import kotlinx.serialization.Serializable
  *
  * Contacts are identified by their 3-word identity and public key.
  * All communication is end-to-end encrypted using their public key.
+ *
+ * 🔒 SECURITY (Phase 3):
+ * - mailboxSeed is SAFE TO SHARE (cannot derive private keys)
+ * - Used only for deriving recipient's mailbox addresses
+ * - Domain separation ensures mailboxSeed cannot derive encryption/signing keys
  */
 @Serializable
 data class Contact(
@@ -15,7 +20,7 @@ data class Contact(
     val displayName: String?,                 // Optional nickname
     val publicKey: ByteArray,                 // Their X25519 public key for encryption
     val identityKey: ByteArray,               // Their Ed25519 identity key
-    val identitySeed: ByteArray,              // Their identity seed (for mailbox derivation)
+    val mailboxSeed: ByteArray,               // 🆕 CHANGED: Mailbox seed (SAFE TO SHARE)
     val verified: Boolean = false,            // Have we verified their key in person?
     val blocked: Boolean = false,             // Is this contact blocked?
     val addedAt: Long = System.currentTimeMillis(),
@@ -52,7 +57,7 @@ data class Contact(
         if (identity != other.identity) return false
         if (!publicKey.contentEquals(other.publicKey)) return false
         if (!identityKey.contentEquals(other.identityKey)) return false
-        if (!identitySeed.contentEquals(other.identitySeed)) return false
+        if (!mailboxSeed.contentEquals(other.mailboxSeed)) return false
 
         return true
     }
@@ -62,7 +67,7 @@ data class Contact(
         result = 31 * result + identity.hashCode()
         result = 31 * result + publicKey.contentHashCode()
         result = 31 * result + identityKey.contentHashCode()
-        result = 31 * result + identitySeed.contentHashCode()
+        result = 31 * result + mailboxSeed.contentHashCode()
         return result
     }
 }
@@ -113,7 +118,7 @@ data class ContactRequest(
     val fromIdentity: ThreeWordIdentity,
     val publicKey: ByteArray,
     val identityKey: ByteArray,
-    val identitySeed: ByteArray,              // Identity seed for mailbox derivation
+    val mailboxSeed: ByteArray,               // 🆕 CHANGED: Mailbox seed (for mailbox derivation)
     val message: String = "",                 // Optional introduction message
     val timestamp: Long = System.currentTimeMillis(),
     val status: RequestStatus = RequestStatus.PENDING
@@ -128,12 +133,18 @@ data class ContactRequest(
 
 /**
  * QR code data for contact exchange.
+ *
+ * 🔒 SECURITY: This data is SAFE TO SHARE via QR code.
+ * - publicKey: Can encrypt messages TO you (cannot decrypt)
+ * - identityKey: Can verify YOUR signatures (cannot forge)
+ * - mailboxSeed: Can send messages to YOUR mailbox (cannot derive private keys)
  */
 @Serializable
 data class ContactQRData(
     val identity: ThreeWordIdentity,
-    val publicKey: String,                    // Base64 encoded
-    val identityKey: String,                  // Base64 encoded
+    val publicKey: String,                    // Base64 X25519 public key
+    val identityKey: String,                  // Base64 Ed25519 public key
+    val mailboxSeed: String,                  // 🆕 NEW: Base64 mailbox seed (SAFE!)
     val timestamp: Long = System.currentTimeMillis()
 ) {
     /**

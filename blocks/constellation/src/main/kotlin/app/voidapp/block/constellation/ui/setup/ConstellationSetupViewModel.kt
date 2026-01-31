@@ -27,6 +27,7 @@ class ConstellationSetupViewModel(
     val state: StateFlow<ConstellationSetupState> = _state.asStateFlow()
 
     private var generationMetadata: StarGenerator.GenerationMetadata? = null
+    private var isProcessingTap: Boolean = false  // Prevent concurrent tap processing
 
     // PERFORMANCE: No automatic generation in init - wait for actual screen dimensions
     // This eliminates double generation (init + LaunchedEffect) that caused ~30 frame drops
@@ -65,6 +66,12 @@ class ConstellationSetupViewModel(
         val currentState = _state.value
         if (currentState !is ConstellationSetupState.Ready) return
 
+        // DEBOUNCE: Prevent concurrent tap processing
+        if (isProcessingTap) {
+            println("VOID_DEBUG: SetupVM - Tap ignored (already processing)")
+            return
+        }
+
         println("VOID_DEBUG: SetupVM - Tap received at (${tap.x}, ${tap.y}), screen: ${screenWidth}x${screenHeight}")
         println("VOID_DEBUG: SetupVM - Current taps: ${currentState.tappedStars.size}, landmarks available: ${currentState.landmarks.size}")
 
@@ -74,31 +81,43 @@ class ConstellationSetupViewModel(
             return
         }
 
-        // Check if tap hits a landmark before adding it
-        val hitLandmark = matcher.findNearestLandmark(tap, currentState.landmarks)
-        if (hitLandmark == null) {
-            println("VOID_DEBUG: SetupVM - Tap missed all landmarks, ignoring")
-            return
+        isProcessingTap = true
+
+        // PERFORMANCE: Move landmark calculations to background thread
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                // Check if tap hits a landmark before adding it
+                val hitLandmark = matcher.findNearestLandmark(tap, currentState.landmarks)
+                if (hitLandmark == null) {
+                    println("VOID_DEBUG: SetupVM - Tap missed all landmarks, ignoring")
+                    return@launch
+                }
+
+                val newTaps = currentTaps + tap
+
+                // V2: Convert to landmark pattern using gravity well
+                val landmarkIndices = matcher.tapsToLandmarkIndices(newTaps, currentState.landmarks)
+                val quality = matcher.calculateQualityV2(landmarkIndices.size)
+
+                println("VOID_DEBUG: SetupVM - Landmark indices: $landmarkIndices (${landmarkIndices.size} landmarks)")
+
+                val canProceed = landmarkIndices.size >= ConstellationSecurityManager.MIN_LANDMARKS && quality >= 50
+
+                withContext(Dispatchers.Main) {
+                    _state.value = currentState.copy(
+                        tappedStars = newTaps,
+                        patternQuality = quality,
+                        canProceed = canProceed
+                    )
+                }
+            } finally {
+                isProcessingTap = false
+            }
         }
-
-        val newTaps = currentTaps + tap
-
-        // V2: Convert to landmark pattern using gravity well
-        val landmarkIndices = matcher.tapsToLandmarkIndices(newTaps, currentState.landmarks)
-        val quality = matcher.calculateQualityV2(landmarkIndices.size)
-
-        println("VOID_DEBUG: SetupVM - Landmark indices: $landmarkIndices (${landmarkIndices.size} landmarks)")
-
-        val canProceed = landmarkIndices.size >= ConstellationSecurityManager.MIN_LANDMARKS && quality >= 50
-
-        _state.value = currentState.copy(
-            tappedStars = newTaps,
-            patternQuality = quality,
-            canProceed = canProceed
-        )
     }
 
     fun onReset() {
+        isProcessingTap = false  // Reset tap processing flag
         val currentState = _state.value
         if (currentState is ConstellationSetupState.Ready) {
             _state.value = currentState.copy(

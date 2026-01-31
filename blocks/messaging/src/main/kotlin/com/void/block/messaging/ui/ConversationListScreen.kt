@@ -24,6 +24,8 @@ import org.koin.androidx.compose.koinViewModel
  *
  * @param userIdentity The user's three-word identity (e.g., "ghost.paper.forty")
  *                     Pass null if identity is not yet available
+ * @param qrCodeJson The QR code JSON for contact exchange
+ *                   Pass null if QR data is not yet available
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,6 +33,7 @@ fun ConversationListScreen(
     onConversationClick: (String) -> Unit,
     onNewConversation: () -> Unit,
     userIdentity: String? = null,
+    qrCodeJson: String? = null,
     viewModel: ConversationListViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -144,6 +147,7 @@ fun ConversationListScreen(
     if (showIdentityDialog && userIdentity != null) {
         IdentityDialog(
             identity = userIdentity!!,
+            qrCodeJson = qrCodeJson,
             onDismiss = { showIdentityDialog = false }
         )
     }
