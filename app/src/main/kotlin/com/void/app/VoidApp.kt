@@ -182,6 +182,9 @@ class VoidApp : Application() {
     private fun initializePushRegistration() {
         applicationScope.launch(Dispatchers.IO) {
             try {
+                // [PUSH_DEBUG] Checkpoint 0: Self-heal started
+                Log.i(TAG, "[PUSH_DEBUG] CHECKPOINT_0_SELFHEAL_START")
+
                 // Check if Firebase is available (Play flavor only)
                 val firebaseClass = Class.forName("com.google.firebase.messaging.FirebaseMessaging")
                 val getInstance = firebaseClass.getMethod("getInstance")
@@ -192,30 +195,53 @@ class VoidApp : Application() {
                 // Manually await the Task using suspendCoroutine to avoid dependency on play-services
                 val token = awaitFirebaseTask(tokenTask)
 
+                // [PUSH_DEBUG] Token acquired
+                Log.i(TAG, "[PUSH_DEBUG] CHECKPOINT_0A_TOKEN_ACQUIRED | token_prefix=${token.take(10)}")
+
                 // Register token if we have an identity
                 val identityRepo: IdentityRepository by inject(IdentityRepository::class.java)
                 val identity = identityRepo.getIdentity()
 
                 if (identity != null) {
+                    // [PUSH_DEBUG] Identity found, attempting registration
+                    Log.i(TAG, "[PUSH_DEBUG] CHECKPOINT_0B_IDENTITY_FOUND | registering...")
+
+                    // Get mailbox seed (NOT identity seed!) for push registration
+                    val mailboxSeed = identityRepo.getMailboxSeed()
+                    if (mailboxSeed == null) {
+                        Log.e(TAG, "❌ FCM self-heal failed: mailbox seed not found")
+                        Log.e(TAG, "[PUSH_DEBUG] CHECKPOINT_0C_SELFHEAL_FAILED | error=mailbox_seed_null")
+                        return@launch
+                    }
+
                     val pushRegistration: PushRegistration by inject(PushRegistration::class.java)
-                    pushRegistration.register(identity.seed, token).fold(
+                    pushRegistration.register(mailboxSeed, token).fold(
                         onSuccess = {
                             Log.d(TAG, "✅ FCM self-heal: Token registered on app startup")
+                            // [PUSH_DEBUG] Self-heal succeeded
+                            Log.i(TAG, "[PUSH_DEBUG] CHECKPOINT_0C_SELFHEAL_SUCCESS | token_prefix=${token.take(10)}")
                         },
                         onFailure = { error ->
                             Log.e(TAG, "❌ FCM self-heal failed: ${error.message}", error)
+                            // [PUSH_DEBUG] Self-heal failed
+                            Log.e(TAG, "[PUSH_DEBUG] CHECKPOINT_0C_SELFHEAL_FAILED | error=${error.message}")
                         }
                     )
                 } else {
                     Log.d(TAG, "⚠️  FCM self-heal: No identity yet, will register after onboarding")
+                    // [PUSH_DEBUG] No identity
+                    Log.i(TAG, "[PUSH_DEBUG] CHECKPOINT_0B_NO_IDENTITY | will register after onboarding")
                 }
 
             } catch (e: ClassNotFoundException) {
                 // FOSS flavor - Firebase not available
                 Log.d(TAG, "ℹ️  FCM not available (FOSS flavor) - using fallback polling")
+                Log.i(TAG, "[PUSH_DEBUG] CHECKPOINT_0_FOSS_BUILD | no Firebase")
             } catch (e: Exception) {
                 // Other errors (network, etc.) - non-critical
                 Log.w(TAG, "⚠️  FCM self-heal check failed (non-critical): ${e.message}")
+                // [PUSH_DEBUG] Exception during self-heal
+                Log.e(TAG, "[PUSH_DEBUG] CHECKPOINT_0_EXCEPTION | ${e.javaClass.simpleName}: ${e.message}")
             }
         }
     }
@@ -229,6 +255,9 @@ class VoidApp : Application() {
     private fun registerFcmTokenForIdentity() {
         applicationScope.launch(Dispatchers.IO) {
             try {
+                // [PUSH_DEBUG] Identity created, registering FCM
+                Log.i(TAG, "[PUSH_DEBUG] CHECKPOINT_1A_IDENTITY_CREATED_REGISTER_START")
+
                 // Check if Firebase is available (Play flavor only)
                 val firebaseClass = Class.forName("com.google.firebase.messaging.FirebaseMessaging")
                 val getInstance = firebaseClass.getMethod("getInstance")
@@ -239,18 +268,31 @@ class VoidApp : Application() {
                 // Get token asynchronously
                 val token = awaitFirebaseTask(tokenTask)
 
+                // [PUSH_DEBUG] Token acquired for new identity
+                Log.i(TAG, "[PUSH_DEBUG] CHECKPOINT_1A_TOKEN_FOR_NEW_IDENTITY | token_prefix=${token.take(10)}")
+
                 // Get identity and register
                 val identityRepo: IdentityRepository by inject(IdentityRepository::class.java)
                 val identity = identityRepo.getIdentity()
 
                 if (identity != null) {
+                    // Get mailbox seed (NOT identity seed!) for push registration
+                    val mailboxSeed = identityRepo.getMailboxSeed()
+                    if (mailboxSeed == null) {
+                        Log.e(TAG, "❌ FCM registration failed: mailbox seed not found")
+                        Log.e(TAG, "[PUSH_DEBUG] CHECKPOINT_1A_NEW_IDENTITY_FAILED | error=mailbox_seed_null")
+                        return@launch
+                    }
+
                     val pushRegistration: PushRegistration by inject(PushRegistration::class.java)
-                    pushRegistration.register(identity.seed, token).fold(
+                    pushRegistration.register(mailboxSeed, token).fold(
                         onSuccess = {
                             Log.d(TAG, "🔔 FCM token registered for new identity")
+                            Log.i(TAG, "[PUSH_DEBUG] CHECKPOINT_1A_NEW_IDENTITY_SUCCESS | token_prefix=${token.take(10)}")
                         },
                         onFailure = { error ->
                             Log.e(TAG, "❌ FCM registration failed: ${error.message}", error)
+                            Log.e(TAG, "[PUSH_DEBUG] CHECKPOINT_1A_NEW_IDENTITY_FAILED | error=${error.message}")
                         }
                     )
                 }
@@ -258,8 +300,10 @@ class VoidApp : Application() {
             } catch (e: ClassNotFoundException) {
                 // FOSS flavor - Firebase not available
                 Log.d(TAG, "ℹ️  FCM not available (FOSS flavor) - skipping push registration")
+                Log.i(TAG, "[PUSH_DEBUG] CHECKPOINT_1A_FOSS_BUILD | no Firebase")
             } catch (e: Exception) {
                 Log.e(TAG, "❌ FCM registration failed: ${e.message}", e)
+                Log.e(TAG, "[PUSH_DEBUG] CHECKPOINT_1A_EXCEPTION | ${e.javaClass.simpleName}: ${e.message}")
             }
         }
     }

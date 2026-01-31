@@ -103,6 +103,9 @@ class VoidFirebaseService : FirebaseMessagingService() {
         Log.d(TAG, "🔑 FCM token refreshed by Google")
         Log.d(TAG, "Token (first 10 chars): ${token.take(10)}...")
 
+        // [PUSH_DEBUG] Checkpoint 1: FCM token acquired
+        Log.i(TAG, "[PUSH_DEBUG] CHECKPOINT_1_TOKEN_ACQUIRED | token_prefix=${token.take(10)}")
+
         // Register token with Supabase server
         serviceScope.launch {
             try {
@@ -115,9 +118,17 @@ class VoidFirebaseService : FirebaseMessagingService() {
                     return@launch
                 }
 
+                // Get mailbox seed (NOT identity seed!) for push registration
+                val mailboxSeed = identityRepository.getMailboxSeed()
+                if (mailboxSeed == null) {
+                    Log.e(TAG, "❌ Mailbox seed not found - cannot register push token")
+                    Log.e(TAG, "[PUSH_DEBUG] CHECKPOINT_3_REGISTER_FAILED | token_prefix=${token.take(10)} | error=mailbox_seed_null")
+                    return@launch
+                }
+
                 // Register FCM token with current mailbox
                 val result = pushRegistration.register(
-                    identitySeed = identity.seed,
+                    mailboxSeed = mailboxSeed,
                     fcmToken = token
                 )
 
@@ -125,10 +136,14 @@ class VoidFirebaseService : FirebaseMessagingService() {
                     onSuccess = {
                         Log.d(TAG, "✅ FCM token registered after Google refresh")
                         Log.d(TAG, "   Server will send push notifications to this device")
+                        // [PUSH_DEBUG] Checkpoint 3: Registration succeeded
+                        Log.i(TAG, "[PUSH_DEBUG] CHECKPOINT_3_REGISTER_SUCCESS | token_prefix=${token.take(10)}")
                     },
                     onFailure = { error ->
                         Log.e(TAG, "❌ FCM token registration failed: ${error.message}", error)
                         Log.e(TAG, "   Will retry on next app start (self-healing)")
+                        // [PUSH_DEBUG] Checkpoint 3: Registration failed
+                        Log.e(TAG, "[PUSH_DEBUG] CHECKPOINT_3_REGISTER_FAILED | token_prefix=${token.take(10)} | error=${error.message}")
                     }
                 )
 

@@ -60,32 +60,35 @@ class PushRegistration(
      * SECURITY: Uses ephemeral token to prove mailbox ownership before registration.
      * This prevents unauthorized FCM token hijacking attacks.
      *
-     * @param identitySeed The user's 32-byte identity seed
+     * @param mailboxSeed The user's 32-byte mailbox seed (NOT identity seed!)
      * @param fcmToken The Firebase Cloud Messaging token
      * @param timestamp Current timestamp (for mailbox derivation)
      * @return Result indicating success or failure
      */
     @OptIn(SupabaseExperimental::class)
     suspend fun register(
-        identitySeed: ByteArray,
+        mailboxSeed: ByteArray,
         fcmToken: String,
         timestamp: Long = System.currentTimeMillis()
     ): Result<Unit> {
         return try {
-            require(identitySeed.size == 32) { "Identity seed must be 32 bytes" }
+            require(mailboxSeed.size == 32) { "Mailbox seed must be 32 bytes" }
             require(fcmToken.isNotBlank()) { "FCM token cannot be blank" }
 
             Log.d(TAG, "🔔 Registering push token with proof-of-ownership")
             Log.d(TAG, "   Token (first 10 chars): ${fcmToken.take(10)}...")
 
+            // [PUSH_DEBUG] Checkpoint 2: Register invoked
+            Log.i(TAG, "[PUSH_DEBUG] CHECKPOINT_2_REGISTER_INVOKED | token_prefix=${fcmToken.take(10)}")
+
             // Derive current mailbox address
-            val mailboxHash = mailboxDerivation.deriveMailbox(identitySeed, timestamp)
+            val mailboxHash = mailboxDerivation.deriveMailbox(mailboxSeed, timestamp)
             val epoch = mailboxDerivation.calculateEpoch(timestamp)
 
             Log.d(TAG, "   📬 Mailbox: ${mailboxHash.take(8)}... (epoch $epoch)")
 
             // SECURITY: Get ephemeral token to prove mailbox ownership
-            val tokenResult = tokenManager.getToken(identitySeed, mailboxHash)
+            val tokenResult = tokenManager.getToken(mailboxSeed, mailboxHash)
             if (tokenResult.isFailure) {
                 Log.e(TAG, "❌ Failed to get ephemeral token: ${tokenResult.exceptionOrNull()?.message}")
                 return Result.failure(tokenResult.exceptionOrNull() ?: Exception("Token request failed"))
@@ -151,6 +154,9 @@ class PushRegistration(
             Log.d(TAG, "   Server will send notifications to this device")
             Log.d(TAG, "   Registration expires: $expiresAt")
 
+            // [PUSH_DEBUG] Checkpoint 2b: Supabase upsert succeeded
+            Log.i(TAG, "[PUSH_DEBUG] CHECKPOINT_2B_SUPABASE_OK | mailbox_prefix=${mailboxHash.take(8)} | token_prefix=${fcmToken.take(10)}")
+
             Result.success(Unit)
 
         } catch (e: Exception) {
@@ -201,18 +207,18 @@ class PushRegistration(
      * Called when mailbox rotates (every 25 hours).
      * Updates the server mapping to the new mailbox address.
      *
-     * @param identitySeed User's identity seed
+     * @param mailboxSeed User's mailbox seed (NOT identity seed!)
      * @param fcmToken Current FCM token
      * @return Result indicating success or failure
      */
-    suspend fun rotate(identitySeed: ByteArray, fcmToken: String): Result<Unit> {
+    suspend fun rotate(mailboxSeed: ByteArray, fcmToken: String): Result<Unit> {
         Log.d(TAG, "🔄 Rotating push registration to new mailbox")
 
         // Unregister from old mailbox (optional - TTL will clean it up anyway)
-        // unregister(identitySeed) // Skipping to reduce API calls
+        // unregister(mailboxSeed) // Skipping to reduce API calls
 
         // Register with new mailbox
-        return register(identitySeed, fcmToken)
+        return register(mailboxSeed, fcmToken)
     }
 
     /**

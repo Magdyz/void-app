@@ -66,8 +66,15 @@ class MailboxRotationWorker(
                 // Await token using reflection
                 val token = awaitFirebaseTask(tokenTask)
 
+                // Get mailbox seed (NOT identity seed!) for push registration
+                val mailboxSeed = identityRepository.getMailboxSeed()
+                if (mailboxSeed == null) {
+                    Log.e(TAG, "❌ Mailbox seed not found - cannot rotate")
+                    return ListenableWorker.Result.retry()
+                }
+
                 // Rotate to new mailbox
-                pushRegistration.rotate(identity.seed, token).fold(
+                pushRegistration.rotate(mailboxSeed, token).fold(
                     onSuccess = {
                         Log.d(TAG, "✅ Mailbox rotated successfully")
                         Log.d(TAG, "   FCM token re-registered with new mailbox")
