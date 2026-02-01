@@ -36,10 +36,11 @@ class SyncDebouncer(
         const val ACTIVE_CHAT_DEBOUNCE_INTERVAL_MS = 30 * 1000L // 30 seconds
 
         /**
-         * Emergency override interval: 10 seconds
-         * Used when force=true is requested (e.g., user opens chat)
+         * Emergency override interval: 3 seconds
+         * Used when force=true is requested (e.g., ACTIVE mode real-time sync)
+         * Matches the ACTIVE mode polling interval for near real-time messaging.
          */
-        const val EMERGENCY_DEBOUNCE_INTERVAL_MS = 10 * 1000L // 10 seconds
+        const val EMERGENCY_DEBOUNCE_INTERVAL_MS = 3 * 1000L // 3 seconds
     }
 
     /**

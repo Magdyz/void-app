@@ -210,6 +210,22 @@ val networkModule = module {
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // Instant Destruction (Delivery ACKs + Replay Protection)
+    // ═══════════════════════════════════════════════════════════════════
+
+    single {
+        com.void.slate.network.sync.SeenMessageTracker(
+            storage = get<com.void.slate.storage.SecureStorage>()
+        )
+    }
+
+    single {
+        com.void.slate.network.supabase.DeliveryAckService(
+            supabase = get()
+        )
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // Network Client (Legacy Ktor-based)
     // ═══════════════════════════════════════════════════════════════════
 

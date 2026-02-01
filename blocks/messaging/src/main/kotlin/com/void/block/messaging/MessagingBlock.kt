@@ -138,7 +138,9 @@ class MessagingBlock : BlockManifest {
                 encryptionService = get(),
                 publicKeyToContactId = getOrNull(),  // Optional callback provided by app module
                 conversationStateManager = get(),  // Wire up INSTANT-VOID state tracking
-                syncDebouncer = get()  // Prevents excessive syncs (5 min debounce)
+                syncDebouncer = get(),  // Prevents excessive syncs (5 min debounce)
+                deliveryAckService = getOrNull(),  // Optional - for instant destruction ACKs
+                seenMessageTracker = getOrNull()  // Optional - for replay attack protection
             )
         }
 
@@ -255,7 +257,9 @@ val messagingModule = module {
             encryptionService = get(),
             publicKeyToContactId = getOrNull(),  // Optional callback provided by app module
             conversationStateManager = get(),  // Wire up INSTANT-VOID state tracking
-            syncDebouncer = get()  // Prevents excessive syncs (5 min debounce)
+            syncDebouncer = get(),  // Prevents excessive syncs (5 min debounce)
+            deliveryAckService = getOrNull(),  // Optional - for instant destruction ACKs
+            seenMessageTracker = getOrNull()  // Optional - for replay attack protection
         )
     }
 

@@ -12,7 +12,9 @@ import com.void.slate.network.supabase.FetchMailboxClient
 import com.void.slate.network.supabase.MessageSender
 import com.void.slate.network.supabase.MessageFetcher
 import com.void.slate.network.supabase.MessageRecord
+import com.void.slate.network.supabase.DeliveryAckService
 import com.void.slate.network.mailbox.MailboxDerivation
+import com.void.slate.network.sync.SeenMessageTracker
 import com.void.slate.storage.SecureStorage
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
@@ -40,7 +42,9 @@ class MessageRepository(
     private val encryptionService: MessageEncryptionService? = null,  // Optional - null = no encryption
     private val publicKeyToContactId: (suspend (String) -> String?)? = null,  // Optional - converts public key hex to contact UUID
     private val conversationStateManager: com.void.block.messaging.adaptive.ConversationStateManager? = null,  // Optional - for INSTANT-VOID adaptive mode
-    private val syncDebouncer: SyncDebouncer? = null  // Optional - prevents excessive syncs (5 min interval)
+    private val syncDebouncer: SyncDebouncer? = null,  // Optional - prevents excessive syncs (5 min interval)
+    private val deliveryAckService: DeliveryAckService? = null,  // Optional - for instant destruction ACKs
+    private val seenMessageTracker: SeenMessageTracker? = null  // Optional - for replay attack protection
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -615,8 +619,13 @@ class MessageRepository(
         Log.d(TAG, "🔍   DB Query Epoch: $dbEpoch sec")
 
         // Fetch messages using Poisson Ghost protocol (preferred) or legacy fetcher
-        val allMessageRecords = if (fetchMailboxClient != null) {
-            Log.d(TAG, "📥 [POISSON_GHOST] Using 4KB padded fetch protocol")
+        // ═══════════════════════════════════════════════════════════════════════
+        // INSTANT DESTRUCTION: Messages are fetched but NOT deleted yet.
+        // We only send signed ACKs (which trigger server deletion) AFTER
+        // successfully storing messages locally. This prevents message loss.
+        // ═══════════════════════════════════════════════════════════════════════
+        val fetchedBatches: List<FetchedBatch> = if (fetchMailboxClient != null) {
+            Log.d(TAG, "📥 [POISSON_GHOST] Using 4KB padded fetch protocol with instant destruction")
             // Poisson Ghost: Fetch mailboxes in PARALLEL with fetch-until-empty loop
             // Keep fetching each mailbox until we get a noise response (empty mailbox)
             coroutineScope {
@@ -625,50 +634,97 @@ class MessageRepository(
                         fetchMailboxUntilEmpty(mailboxHash, userIdentity.seed, dbEpoch)
                     }
                 }
-                // Await all parallel fetches and flatten results
-                deferredResults.awaitAll().flatten()
+                // Await all parallel fetches
+                deferredResults.awaitAll()
             }
         } else {
             Log.d(TAG, "📥 [LEGACY] Using direct Postgrest fetch")
             // Legacy: Fetch all mailboxes in one call (variable response size)
             val result = messageFetcher!!.fetchMessages(userIdentity.seed, mailboxHashes, dbEpoch)
-            result.getOrElse { error ->
+            val records = result.getOrElse { error ->
                 Log.e(TAG, "❌ [SYNC_FAILED] ${error.message}", error)
                 emptyList()
             }
+            // Wrap in FetchedBatch with primary mailbox hash (no replay tracking in legacy mode)
+            val primaryMailbox = activeMailboxes.firstOrNull { it.isPrimary }?.hash
+                ?: activeMailboxes.firstOrNull()?.hash
+                ?: mailboxHashes.firstOrNull()
+                ?: ""
+            listOf(FetchedBatch(records, emptyList(), primaryMailbox))
         }
 
-        // Process fetched messages
-        if (allMessageRecords.isNotEmpty()) {
-            val processedIds = mutableListOf<String>()
+        // ═══════════════════════════════════════════════════════════════════════
+        // Process fetched messages and track for ACK
+        // ═══════════════════════════════════════════════════════════════════════
+        // Track successfully stored messages: (messageId, mailboxHash)
+        val successfullyStored = mutableListOf<Pair<String, String>>()
+        // Track replay messages that need ACKs (already stored locally, need server cleanup)
+        val replayNeedingAck = mutableListOf<Pair<String, String>>()
+        val processedIds = mutableListOf<String>()
 
-            allMessageRecords.forEach { record ->
+        for (batch in fetchedBatches) {
+            // Process new messages
+            for (record in batch.records) {
                 val message = parseSupabaseMessage(record)
                 if (message != null) {
+                    // Store message locally FIRST (critical - must succeed before ACK)
                     receiveMessage(message)
                     newMessageCount++
                     processedIds.add(record.id)
+
+                    // Track for ACK only after successful local storage
+                    successfullyStored.add(record.id to batch.mailboxHash)
                 } else {
                     Log.w(TAG, "⚠️ [SYNC] Failed to parse message ${record.id}")
+                    // Do NOT add to successfullyStored - we don't ACK failed messages
+                    // They will be retried on next sync and eventually expire via TTL
                 }
             }
 
-            Log.d(TAG, "📥 [SYNC] Processed ${allMessageRecords.size} messages successfully")
+            // Track replay messages for ACK cleanup (they're already stored locally)
+            for (record in batch.replayRecords) {
+                replayNeedingAck.add(record.id to batch.mailboxHash)
+            }
+        }
 
-            // Note: Messages are deleted immediately in the Poisson Ghost fetch loop
-            // For legacy protocol, delete them here
-            if (fetchMailboxClient == null && processedIds.isNotEmpty()) {
-                // Use primary mailbox for delete token (all messages belong to our mailboxes)
-                val primaryMailbox = activeMailboxes.firstOrNull { it.isPrimary }?.hash
-                    ?: activeMailboxes.firstOrNull()?.hash
-                    ?: mailboxHashes.firstOrNull()
+        if (processedIds.isNotEmpty()) {
+            Log.d(TAG, "📥 [SYNC] Processed ${processedIds.size} new messages successfully")
+        }
+        if (replayNeedingAck.isNotEmpty()) {
+            Log.d(TAG, "🔄 [SYNC] Found ${replayNeedingAck.size} replay messages needing server cleanup")
+        }
 
-                if (primaryMailbox != null) {
-                    // Use legacy fetcher for delete
-                    messageFetcher?.deleteMessages(userIdentity.seed, processedIds, primaryMailbox)
-                } else {
-                    Log.w(TAG, "⚠️ [SYNC] No mailbox available for delete operation")
-                }
+        // ═══════════════════════════════════════════════════════════════════════
+        // INSTANT DESTRUCTION: Send signed ACKs to delete messages from server
+        // ═══════════════════════════════════════════════════════════════════════
+        // ACKs are sent for:
+        // 1. New messages AFTER they are stored locally (ensures no message loss)
+        // 2. Replay messages (already stored locally, need server cleanup)
+        val allNeedingAck = successfullyStored + replayNeedingAck
+
+        if (allNeedingAck.isNotEmpty() && deliveryAckService != null) {
+            val newCount = successfullyStored.size
+            val replayCount = replayNeedingAck.size
+            Log.d(TAG, "🗑️ [INSTANT_DESTRUCTION] Sending ${allNeedingAck.size} delivery ACKs ($newCount new, $replayCount replay cleanup)...")
+
+            val ackResult = deliveryAckService.sendBatchAcks(userIdentity.seed, allNeedingAck)
+            ackResult.onSuccess { count ->
+                Log.d(TAG, "🗑️ [INSTANT_DESTRUCTION] $count/${allNeedingAck.size} messages deleted from server")
+            }.onFailure { error ->
+                // ACK failed - messages will stay on server until TTL expires (24h)
+                // SeenMessageTracker will filter them on next sync (no duplicates)
+                Log.w(TAG, "⚠️ [ACK_FAILED] Server deletion failed: ${error.message}")
+                Log.w(TAG, "⚠️ [ACK_FAILED] Messages will expire via 24h TTL")
+            }
+        } else if (successfullyStored.isNotEmpty() && deliveryAckService == null) {
+            // Fallback: Use legacy delete if no ACK service (maintains backward compatibility)
+            Log.d(TAG, "🗑️ [LEGACY_DELETE] ACK service not available, using legacy delete")
+            val primaryMailbox = activeMailboxes.firstOrNull { it.isPrimary }?.hash
+                ?: activeMailboxes.firstOrNull()?.hash
+                ?: mailboxHashes.firstOrNull()
+
+            if (primaryMailbox != null) {
+                messageFetcher?.deleteMessages(userIdentity.seed, processedIds, primaryMailbox)
             }
         }
 
@@ -676,20 +732,42 @@ class MessageRepository(
     }
 
     /**
+     * Result of fetching messages from a mailbox.
+     * Includes the mailbox hash for ACK purposes.
+     *
+     * @param records New messages to be processed and stored locally
+     * @param replayRecords Messages already stored locally that need ACKs to delete from server
+     * @param mailboxHash The mailbox hash (needed for ACK signing)
+     */
+    private data class FetchedBatch(
+        val records: List<MessageRecord>,
+        val replayRecords: List<MessageRecord>,
+        val mailboxHash: String
+    )
+
+    /**
      * Fetch all messages from a single mailbox until empty.
      * Used by parallel fetch to isolate each mailbox's fetch loop.
+     *
+     * INSTANT DESTRUCTION: Messages are NOT deleted here anymore.
+     * Instead, we return the records for processing, and ACKs are sent
+     * AFTER successful local storage in syncMessages().
+     *
+     * REPLAY HANDLING: Messages already seen (stored locally) are tracked
+     * separately so ACKs can be sent to delete them from the server.
      *
      * @param mailboxHash The mailbox hash to fetch from
      * @param identitySeed User's identity seed for token generation
      * @param dbEpoch Database query epoch
-     * @return List of message records fetched from this mailbox
+     * @return FetchedBatch containing new records, replay records, and mailbox hash
      */
     private suspend fun fetchMailboxUntilEmpty(
         mailboxHash: String,
         identitySeed: ByteArray,
         dbEpoch: Long
-    ): List<MessageRecord> {
+    ): FetchedBatch {
         val records = mutableListOf<MessageRecord>()
+        val replayRecords = mutableListOf<MessageRecord>()
         var fetchCount = 0
         var keepFetching = true
         val MAX_BATCHES = 100 // Safety limit to prevent infinite loops
@@ -699,15 +777,53 @@ class MessageRepository(
             fetchMailboxClient?.fetchMessages(identitySeed, mailboxHash, dbEpoch)
                 ?.onSuccess { mailboxRecords ->
                     if (mailboxRecords.isNotEmpty()) {
-                        records.addAll(mailboxRecords)
-                        Log.d(TAG, "📥 [FETCH_LOOP] Batch $fetchCount: ${mailboxRecords.size} messages from ${mailboxHash.take(8)}...")
+                        // ═══════════════════════════════════════════════════════════
+                        // REPLAY ATTACK PROTECTION: Separate new vs already-seen messages
+                        // ═══════════════════════════════════════════════════════════
+                        var batchNewCount = 0
+                        var batchReplayCount = 0
 
-                        // CRITICAL: Delete messages immediately to prevent infinite loop
-                        val messageIds = mailboxRecords.map { it.id }
-                        messageFetcher?.deleteMessages(identitySeed, messageIds, mailboxHash)
-                        Log.d(TAG, "🗑️ [DELETE] Deleted ${messageIds.size} messages from server")
+                        if (seenMessageTracker != null) {
+                            for (record in mailboxRecords) {
+                                if (seenMessageTracker.markSeenIfNew(record.id)) {
+                                    // New message - process it
+                                    records.add(record)
+                                    batchNewCount++
+                                } else {
+                                    // Replay - already stored locally, but needs ACK to delete from server
+                                    replayRecords.add(record)
+                                    batchReplayCount++
+                                }
+                            }
+                        } else {
+                            // No tracker = treat all as new
+                            records.addAll(mailboxRecords)
+                            batchNewCount = mailboxRecords.size
+                        }
 
-                        // Keep fetching if we got messages (mailbox may have more)
+                        if (batchNewCount == 0 && batchReplayCount > 0) {
+                            // All messages were replays - mailbox is "logically empty" for processing
+                            // but we captured the replays for ACK cleanup
+                            Log.d(TAG, "🔄 [REPLAY_CLEANUP] All $batchReplayCount messages are replays - need ACK cleanup")
+                            Log.d(TAG, "✓ [FETCH_COMPLETE] Mailbox ${mailboxHash.take(8)}... logically empty (only replays)")
+                            keepFetching = false  // STOP - no new messages to find behind these
+                        } else if (batchReplayCount > 0) {
+                            Log.d(TAG, "📥 [FETCH_LOOP] Batch $fetchCount: $batchNewCount new, $batchReplayCount replays from ${mailboxHash.take(8)}...")
+                        } else {
+                            Log.d(TAG, "📥 [FETCH_LOOP] Batch $fetchCount: $batchNewCount new messages from ${mailboxHash.take(8)}...")
+                        }
+
+                        // ═══════════════════════════════════════════════════════════
+                        // INSTANT DESTRUCTION: Do NOT delete messages here!
+                        // Messages stay on server until we send signed ACK after
+                        // successful local storage. This prevents message loss if
+                        // the app crashes between fetch and local storage.
+                        //
+                        // ACKs are sent in syncMessages() for:
+                        // 1. New messages after receiveMessage() succeeds
+                        // 2. Replay messages (already stored, need server cleanup)
+                        // ═══════════════════════════════════════════════════════════
+
                     } else {
                         // Empty response (noise) - mailbox is empty
                         Log.d(TAG, "✓ [FETCH_COMPLETE] Mailbox ${mailboxHash.take(8)}... empty after $fetchCount batch(es)")
@@ -724,7 +840,7 @@ class MessageRepository(
             Log.w(TAG, "⚠️ [FETCH_LIMIT] Hit safety limit of $MAX_BATCHES batches for mailbox ${mailboxHash.take(8)}...")
         }
 
-        return records
+        return FetchedBatch(records, replayRecords, mailboxHash)
     }
 
     /**

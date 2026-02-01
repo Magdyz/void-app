@@ -296,19 +296,22 @@ class MessageSender(
         private const val MAX_MESSAGE_SIZE = 64 * 1024 // 64 KB
 
         /**
-         * Message TTL on server: 6.9 days = 165.6 hours (with safety margin).
+         * Message TTL on server: 23 hours (with 1-hour safety margin for 24-hour max).
          *
-         * The server enforces a strict 7-day maximum, but we use 6.9 days to account for:
+         * INSTANT DESTRUCTION: Messages are now deleted immediately upon delivery ACK.
+         * This TTL is the MAXIMUM time a message can exist if recipient never comes online.
+         *
+         * The server enforces a strict 24-hour maximum, but we use 23 hours to account for:
          * - Clock skew between device and server (device may be ahead)
          * - Network latency (time between calculating and server receiving)
          * - Processing time (time between server receiving and validating)
          *
-         * The 0.1 day (2.4 hour) safety margin ensures messages are always accepted
+         * The 1-hour safety margin ensures messages are always accepted
          * even if the device clock is slightly ahead or network has delays.
          *
-         * After this, messages are auto-deleted by TTL cleanup job.
+         * Marketing: "Messages held max 24 hours, then vanish forever."
          */
-        private const val MESSAGE_TTL_HOURS = 165L  // 6.9 days = 6.9 * 24 = 165.6 hours (rounded down for safety)
+        private const val MESSAGE_TTL_HOURS = 23L  // 23 hours (24h max - 1h safety margin)
     }
 }
 

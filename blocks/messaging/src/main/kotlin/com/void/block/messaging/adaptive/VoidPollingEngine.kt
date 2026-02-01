@@ -122,7 +122,12 @@ class VoidPollingEngine(
             val startTime = System.currentTimeMillis()
 
             // Sync messages from network
-            val newMessageCount = messageRepository.syncMessages()
+            // In ACTIVE mode, use force=true for near real-time sync (10s debounce)
+            // In SEMI_ACTIVE mode, use activeChat=true (30s debounce)
+            // In DORMANT mode, use default (5min debounce)
+            val force = mode == ConversationMode.ACTIVE
+            val activeChat = mode == ConversationMode.SEMI_ACTIVE
+            val newMessageCount = messageRepository.syncMessages(force = force, activeChat = activeChat)
 
             val duration = System.currentTimeMillis() - startTime
             Log.d(TAG, "✅ [SYNC_COMPLETE] messages=$newMessageCount, duration=${duration}ms")

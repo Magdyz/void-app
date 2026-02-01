@@ -11,6 +11,9 @@ dependencies {
     // Slate core for interfaces
     api(project(":slate:core"))
 
+    // Slate storage for SeenMessageTracker (replay protection)
+    implementation(project(":slate:storage"))
+
     // Ktor for HTTP client + WebSockets
     implementation(libs.bundles.ktor)
 
