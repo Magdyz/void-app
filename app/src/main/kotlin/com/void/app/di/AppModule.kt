@@ -1,6 +1,8 @@
 package com.void.app.di
 
 import android.content.Context
+import app.voidapp.secure.BuildConfig
+import com.void.slate.network.supabase.SupabaseConfig
 import com.void.app.AppStateManager
 import com.void.app.RuntimeFeatureFlags
 import com.void.app.crypto.AppMessageEncryptionService
@@ -44,13 +46,22 @@ val appModule = module {
     // ═══════════════════════════════════════════════════════════════════
     
     // Event Bus - the connector between blocks
-    single<EventBus> { 
+    single<EventBus> {
         LoggingEventBus(
             delegate = InMemoryEventBus(),
             logger = { message -> android.util.Log.d("EventBus", message) }
         )
     }
-    
+
+    // Supabase Configuration - from local.properties via BuildConfig
+    single {
+        SupabaseConfig(
+            url = BuildConfig.SUPABASE_URL,
+            anonKey = BuildConfig.SUPABASE_ANON_KEY,
+            enableLogging = BuildConfig.DEBUG
+        )
+    }
+
     // Navigator - handles all navigation
     single<Navigator> { VoidNavigator() }
 

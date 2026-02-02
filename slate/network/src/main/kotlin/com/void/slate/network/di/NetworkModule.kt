@@ -56,11 +56,7 @@ val networkModule = module {
         NetworkConfig.DEBUG
     }
 
-    single {
-        // Use DEBUG for development (production server with logging)
-        // Change to PRODUCTION for release builds
-        SupabaseConfig.DEBUG
-    }
+    // NOTE: SupabaseConfig is provided by AppModule (has access to BuildConfig)
 
     // ═══════════════════════════════════════════════════════════════════
     // HTTP Client (Ktor)
