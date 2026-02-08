@@ -17,11 +17,14 @@ import com.void.slate.network.mailbox.MailboxDerivation
 import com.void.slate.network.sync.SeenMessageTracker
 import com.void.slate.storage.SecureStorage
 import android.util.Base64
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
@@ -41,6 +44,8 @@ class MessageRepository(
     private val mailboxDerivation: MailboxDerivation? = null,  // Optional for fetching
     private val encryptionService: MessageEncryptionService? = null,  // Optional - null = no encryption
     private val publicKeyToContactId: (suspend (String) -> String?)? = null,  // Optional - converts public key hex to contact UUID
+    private val isContactMutuallyVerified: (suspend (String) -> Boolean)? = null,  // Optional - checks if contact is mutually verified
+    private val markContactMutuallyVerified: (suspend (String) -> Unit)? = null,  // Optional - marks contact as mutually verified
     private val conversationStateManager: com.void.block.messaging.adaptive.ConversationStateManager? = null,  // Optional - for INSTANT-VOID adaptive mode
     private val syncDebouncer: SyncDebouncer? = null,  // Optional - prevents excessive syncs (5 min interval)
     private val deliveryAckService: DeliveryAckService? = null,  // Optional - for instant destruction ACKs
@@ -56,6 +61,9 @@ class MessageRepository(
 
     private val _messagesCache = mutableMapOf<String, MutableStateFlow<List<Message>>>()
 
+    // Fire-and-forget scope for non-critical background tasks (decoys, etc.)
+    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     companion object {
         private const val TAG = "VOID_SECURITY"
         private const val KEY_PREFIX_MESSAGE = "message."
@@ -63,6 +71,7 @@ class MessageRepository(
         private const val KEY_PREFIX_DRAFT = "draft."
         private const val KEY_CONVERSATION_IDS = "conversation.all_ids"
         private const val KEY_MESSAGE_IDS_PREFIX = "conversation.message_ids."
+        private const val HANDSHAKE_PREFIX = "__VOID_HANDSHAKE__:"
     }
 
     /**
@@ -204,6 +213,23 @@ class MessageRepository(
         Log.d(TAG, "   🏷️  Three-word identity: ${recipientIdentity.threeWordIdentity}")
         Log.d(TAG, "   🔑 MailboxSeed (first 16 bytes): ${recipientIdentity.seed.take(16).joinToString("") { "%02x".format(it) }}")
 
+        // ═══════════════════════════════════════════════════════════════
+        // MUTUAL VERIFICATION CHECK
+        // Only handshake messages can be sent to unverified contacts.
+        // Regular messages are queued as PENDING_VERIFICATION until
+        // the handshake completes (both parties scanned each other's QR).
+        // ═══════════════════════════════════════════════════════════════
+        if (message.content !is MessageContent.Handshake) {
+            val isVerified = isContactMutuallyVerified?.invoke(message.recipientId) ?: true
+            if (!isVerified) {
+                Log.d(TAG, "⏳ [PENDING_VERIFICATION] Contact ${message.recipientId} not mutually verified")
+                Log.d(TAG, "   📨 Queuing message as PENDING_VERIFICATION and sending handshake ping")
+                updateMessageStatus(message.id, MessageStatus.PENDING_VERIFICATION)
+                sendHandshakePing(message.recipientId)
+                return
+            }
+        }
+
         // Encrypt message content
         Log.d(TAG, "🔐 [ENCRYPTING] Encrypting message content...")
         val encryptedPayload = if (encryptionService != null) {
@@ -243,13 +269,16 @@ class MessageRepository(
             Log.d(TAG, "✓ [MESSAGE_SENT] Status updated to SENT")
 
             // Send immediate cover traffic (1-2 decoys) to obscure the real message
+            // Fire-and-forget: don't block the UI waiting for decoys
             val decoyCount = kotlin.random.Random.nextInt(1, 3) // 1-2 decoys
-            Log.d(TAG, "🎭 [IMMEDIATE_COVER] Sending $decoyCount decoys after real message")
-            repeat(decoyCount) {
-                try {
-                    sender.sendDecoyMessage()
-                } catch (e: Exception) {
-                    Log.w(TAG, "⚠️  Immediate decoy failed (non-critical): ${e.message}")
+            Log.d(TAG, "🎭 [IMMEDIATE_COVER] Launching $decoyCount decoys in background")
+            backgroundScope.launch {
+                repeat(decoyCount) {
+                    try {
+                        sender.sendDecoyMessage()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "⚠️  Immediate decoy failed (non-critical): ${e.message}")
+                    }
                 }
             }
         }.onFailure { error ->
@@ -895,6 +924,48 @@ class MessageRepository(
 
             Log.d(TAG, "✓ [CONTACT_MATCHED] publicKey=${senderPublicKeyHex.take(16)}... -> contactId=$contactId")
 
+            // ═══════════════════════════════════════════════════════════════
+            // MUTUAL VERIFICATION: Process handshake and auto-verify
+            // Receiving any message from a contact proves they have our QR.
+            // ═══════════════════════════════════════════════════════════════
+
+            // Check if this is a handshake message (invisible to users)
+            if (plaintext.startsWith(HANDSHAKE_PREFIX)) {
+                val handshakeType = plaintext.removePrefix(HANDSHAKE_PREFIX)
+                Log.d(TAG, "🤝 [HANDSHAKE] Received handshake '$handshakeType' from contact $contactId")
+
+                // Mark sender as mutually verified (they clearly have our QR)
+                val wasAlreadyVerified = isContactMutuallyVerified?.invoke(contactId) ?: true
+                if (!wasAlreadyVerified) {
+                    markContactMutuallyVerified?.invoke(contactId)
+                    Log.d(TAG, "✅ [HANDSHAKE] Contact $contactId marked as mutually verified")
+
+                    // Respond with pong if we received a ping
+                    if (handshakeType == "ping") {
+                        sendHandshakeResponse(contactId)
+                    }
+
+                    // Flush any pending messages now that contact is verified
+                    flushPendingMessages(contactId)
+                }
+
+                // Don't store handshake messages - they're invisible to users
+                return null
+            }
+
+            // For regular messages: auto-verify sender if not yet verified
+            val isVerified = isContactMutuallyVerified?.invoke(contactId) ?: true
+            if (!isVerified) {
+                markContactMutuallyVerified?.invoke(contactId)
+                Log.d(TAG, "✅ [AUTO_VERIFY] Contact $contactId verified via received message")
+
+                // Send pong so they know we verified them too
+                sendHandshakeResponse(contactId)
+
+                // Flush any pending messages we had queued for them
+                flushPendingMessages(contactId)
+            }
+
             // Create message with contact UUID (not public key hex!)
             val message = Message(
                 id = record.id,
@@ -935,6 +1006,107 @@ class MessageRepository(
      */
     suspend fun updateLastSyncTimestamp(timestamp: Long = System.currentTimeMillis()) {
         storage.put("network.last_sync_timestamp", timestamp.toString().toByteArray())
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Mutual Verification Handshake
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Check if a contact is mutually verified. If not, initiate handshake.
+     * Called when opening a chat to ensure verification status is current.
+     *
+     * @return true if contact is mutually verified, false if pending
+     */
+    suspend fun ensureMutualVerification(contactId: String): Boolean {
+        val isVerified = isContactMutuallyVerified?.invoke(contactId) ?: true
+        if (!isVerified) {
+            Log.d(TAG, "🤝 [VERIFY_CHECK] Contact $contactId not verified, sending handshake ping")
+            sendHandshakePing(contactId)
+            return false
+        }
+        return true
+    }
+
+    /**
+     * Send a handshake ping to initiate mutual verification.
+     * Bypasses local storage - handshake messages are invisible to users.
+     */
+    private suspend fun sendHandshakePing(contactId: String) {
+        if (messageSender == null || encryptionService == null) return
+
+        Log.d(TAG, "🤝 [HANDSHAKE_PING] Sending ping to contact $contactId")
+
+        val message = Message(
+            conversationId = contactId,
+            senderId = "me",
+            recipientId = contactId,
+            content = MessageContent.Handshake(type = "ping"),
+            direction = MessageDirection.OUTGOING,
+            status = MessageStatus.SENDING
+        )
+
+        sendMessageViaNetwork(message, messageSender)
+    }
+
+    /**
+     * Send a handshake pong in response to a ping.
+     * Confirms mutual verification to the other party.
+     */
+    private suspend fun sendHandshakeResponse(contactId: String) {
+        if (messageSender == null || encryptionService == null) return
+
+        Log.d(TAG, "🤝 [HANDSHAKE_PONG] Sending pong to contact $contactId")
+
+        val message = Message(
+            conversationId = contactId,
+            senderId = "me",
+            recipientId = contactId,
+            content = MessageContent.Handshake(type = "pong"),
+            direction = MessageDirection.OUTGOING,
+            status = MessageStatus.SENDING
+        )
+
+        sendMessageViaNetwork(message, messageSender)
+    }
+
+    /**
+     * Flush pending messages after mutual verification is confirmed.
+     * Re-sends messages that were queued with PENDING_VERIFICATION status.
+     */
+    private suspend fun flushPendingMessages(contactId: String) {
+        if (messageSender == null) return
+
+        val messageIds = getMessageIds(contactId)
+        val pendingMessages = messageIds.mapNotNull { id ->
+            getMessage(id)
+        }.filter { it.status == MessageStatus.PENDING_VERIFICATION }
+
+        if (pendingMessages.isEmpty()) return
+
+        Log.d(TAG, "📤 [FLUSH_PENDING] Flushing ${pendingMessages.size} pending messages for contact $contactId")
+
+        for (message in pendingMessages) {
+            // Update timestamp and status for freshness
+            val updated = message.copy(
+                timestamp = System.currentTimeMillis(),
+                status = MessageStatus.SENDING
+            )
+
+            // Update local storage
+            val messageKey = "$KEY_PREFIX_MESSAGE${message.id}"
+            val messageJson = json.encodeToString(updated)
+            storage.put(messageKey, messageJson.toByteArray())
+
+            // Update in-memory cache
+            val flow = _messagesCache[updated.conversationId]
+            flow?.value = flow?.value?.map {
+                if (it.id == message.id) updated else it
+            } ?: emptyList()
+
+            // Send via network
+            sendMessageViaNetwork(updated, messageSender)
+        }
     }
 
     /**

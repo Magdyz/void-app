@@ -142,6 +142,13 @@ sealed class MessageContent {
      */
     @Serializable
     data class System(val message: String) : MessageContent()
+
+    /**
+     * Handshake message for mutual contact verification.
+     * Invisible to users - processed at protocol level only.
+     */
+    @Serializable
+    data class Handshake(val type: String = "ping") : MessageContent()
 }
 
 /**
@@ -149,12 +156,13 @@ sealed class MessageContent {
  */
 @Serializable
 enum class MessageStatus {
-    SENDING,      // Being sent
-    SENT,         // Sent to server
-    DELIVERED,    // Delivered to recipient
-    READ,         // Read by recipient
-    FAILED,       // Failed to send
-    EXPIRED       // Message has expired
+    SENDING,                // Being sent
+    SENT,                   // Sent to server
+    DELIVERED,              // Delivered to recipient
+    READ,                   // Read by recipient
+    FAILED,                 // Failed to send
+    EXPIRED,                // Message has expired
+    PENDING_VERIFICATION    // Waiting for mutual handshake verification
 }
 
 /**
@@ -190,6 +198,7 @@ data class Conversation(
             is MessageContent.Image -> "\uD83D\uDDBC️ Image"
             is MessageContent.File -> "\uD83D\uDCC4 ${content.fileName}"
             is MessageContent.System -> content.message
+            is MessageContent.Handshake -> ""  // Handshake messages are invisible
             null -> "No messages yet"
         }
     }

@@ -32,6 +32,7 @@ class AppMessageEncryptionService(
                 is MessageContent.Image -> "[Image]"
                 is MessageContent.File -> "[File: ${content.fileName}]"
                 is MessageContent.System -> content.message
+                is MessageContent.Handshake -> "__VOID_HANDSHAKE__:${content.type}"
             }
 
             // Get encryption keys

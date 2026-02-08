@@ -18,9 +18,10 @@ class IdentityRepository(
     private val crypto: CryptoProvider,
     private val keystoreManager: KeystoreManager
 ) {
-    
+
     private val _identity = MutableStateFlow<Identity?>(null)
     val identity: Flow<Identity?> = _identity.asStateFlow()
+    private var keyGenCallCount = 0
     
     /**
      * Get the current identity, loading from storage if needed.
@@ -52,8 +53,11 @@ class IdentityRepository(
         val hasIdentityKey = secureStorage.get(KEY_IDENTITY_PUBLIC) != null
         val hasMailboxSeed = secureStorage.get(KEY_MAILBOX_SEED) != null
 
+        Log.d(TAG, "🔍 [KEY_CHECK] ensureKeysExist: enc=$hasEncryptionKey, id=$hasIdentityKey, mailbox=$hasMailboxSeed")
+
         if (!hasEncryptionKey || !hasIdentityKey || !hasMailboxSeed) {
-            Log.w(TAG, "⚠️  [KEY_MISSING] Keys not found for existing identity - generating now")
+            Log.e(TAG, "🚨 [KEY_MISSING] Keys not found for existing identity - generating now!")
+            Log.e(TAG, "🚨 This will generate NEW keys that contacts don't know about!")
             generateAndStoreKeyPairs()
         } else {
             // Verify keys match deterministic derivation
@@ -77,12 +81,23 @@ class IdentityRepository(
 
         // Compare
         if (!storedPublicKey.contentEquals(expectedKeyPair.publicKey)) {
-            Log.w(TAG, "⚠️  Key mismatch detected. Regenerating keys from seed...")
+            val storedHex = storedPublicKey.joinToString("") { "%02x".format(it) }
+            val expectedHex = expectedKeyPair.publicKey.joinToString("") { "%02x".format(it) }
+            val seedHex = identity.seed.take(16).joinToString("") { "%02x".format(it) }
+            Log.e(TAG, "🚨 [KEY_ROTATION] Key mismatch detected! THIS WILL BREAK EXISTING CONTACTS!")
+            Log.e(TAG, "🚨   Stored publicKey:  $storedHex")
+            Log.e(TAG, "🚨   Expected publicKey: $expectedHex")
+            Log.e(TAG, "🚨   Identity seed (first 16): $seedHex")
 
             // Regenerate keys using deterministic method
             generateAndStoreKeyPairs()
 
-            Log.i(TAG, "✓ Keys regenerated successfully")
+            val newPublicKey = secureStorage.get(KEY_ENCRYPTION_PUBLIC)
+            val newHex = newPublicKey?.joinToString("") { "%02x".format(it) } ?: "null"
+            Log.e(TAG, "🚨   New publicKey after regen: $newHex")
+            Log.e(TAG, "🚨 [KEY_ROTATION] All contacts now have STALE keys. Messages will fail!")
+        } else {
+            Log.d(TAG, "✓ [KEY_VERIFY] Stored encryption key matches deterministic derivation")
         }
     }
     
@@ -91,7 +106,9 @@ class IdentityRepository(
      * Also generates and stores cryptographic key pairs for encryption.
      */
     suspend fun saveIdentity(identity: Identity) {
+        val seedHex = identity.seed.joinToString("") { "%02x".format(it) }
         Log.d(TAG, "🔒 [IDENTITY_SAVE] Saving identity and generating key pairs")
+        Log.d(TAG, "🔒 [IDENTITY_SAVE] Original seed: $seedHex")
 
         // Encrypt the seed before storage
         val encryptedSeed = crypto.encrypt(
@@ -109,7 +126,9 @@ class IdentityRepository(
         generateAndStoreKeyPairs()
 
         _identity.value = identity
-        Log.d(TAG, "✓ [IDENTITY_SAVE] Identity saved with key pairs")
+        val finalPubKey = secureStorage.get(KEY_ENCRYPTION_PUBLIC)
+        val finalPubKeyHex = finalPubKey?.joinToString("") { "%02x".format(it) } ?: "null"
+        Log.d(TAG, "✓ [IDENTITY_SAVE] Identity saved. Final publicKey in storage: $finalPubKeyHex")
     }
 
     /**
@@ -126,14 +145,25 @@ class IdentityRepository(
      * - Mailbox seed CANNOT derive private keys (domain separation via HKDF)
      */
     private suspend fun generateAndStoreKeyPairs() {
+        keyGenCallCount++
+        val callNum = keyGenCallCount
+        val caller = Thread.currentThread().stackTrace.take(6).joinToString(" <- ") { it.methodName }
+        Log.e(TAG, "🔑 [KEY_GEN #$callNum] generateAndStoreKeyPairs() called from: $caller")
+
         // Get identity seed
         val identity = _identity.value ?: getIdentity()
         require(identity != null) { "Identity must exist before generating keys" }
 
+        val seedHex = identity.seed.joinToString("") { "%02x".format(it) }
+        Log.e(TAG, "🔑 [KEY_GEN #$callNum] Using seed: $seedHex")
+
         // Derive encryption key pair (X25519 for ECDH)
         val encryptionKeyPair = crypto.deriveKeyPairFromSeed(identity.seed, "encryption")
 
-        Log.d(TAG, "🔑 [KEY_DERIVE] Derived encryption key pair from seed: publicKey=${encryptionKeyPair.publicKey.size} bytes, privateKey=${encryptionKeyPair.privateKey.size} bytes")
+        val pubKeyHex = encryptionKeyPair.publicKey.joinToString("") { "%02x".format(it) }
+        val privKeyHex = encryptionKeyPair.privateKey.joinToString("") { "%02x".format(it) }
+        Log.e(TAG, "🔑 [KEY_GEN #$callNum] Derived X25519 publicKey:  $pubKeyHex")
+        Log.e(TAG, "🔑 [KEY_GEN #$callNum] Derived X25519 privateKey: $privKeyHex")
 
         // Store encryption keys in secure storage
         secureStorage.put(KEY_ENCRYPTION_PUBLIC, encryptionKeyPair.publicKey)
@@ -142,7 +172,8 @@ class IdentityRepository(
         // Derive identity/signature key pair (Ed25519 for signatures)
         val identityKeyPair = crypto.deriveKeyPairFromSeed(identity.seed, "identity")
 
-        Log.d(TAG, "🔑 [KEY_DERIVE] Derived identity key pair from seed: publicKey=${identityKeyPair.publicKey.size} bytes, privateKey=${identityKeyPair.privateKey.size} bytes")
+        val idPubKeyHex = identityKeyPair.publicKey.joinToString("") { "%02x".format(it) }
+        Log.e(TAG, "🔑 [KEY_GEN #$callNum] Derived Ed25519 publicKey: $idPubKeyHex")
 
         // Store identity keys
         secureStorage.put(KEY_IDENTITY_PUBLIC, identityKeyPair.publicKey)
@@ -151,12 +182,16 @@ class IdentityRepository(
         // 🆕 Derive mailbox seed (SAFE TO SHARE - cannot derive private keys)
         val mailboxSeed = crypto.derive(identity.seed, "mailbox-seed")
 
-        Log.d(TAG, "🔑 [KEY_DERIVE] Derived mailbox seed from identity seed: ${mailboxSeed.size} bytes")
+        Log.e(TAG, "🔑 [KEY_GEN #$callNum] Derived mailbox seed: ${mailboxSeed.take(16).joinToString("") { "%02x".format(it) }}...")
 
         // Store mailbox seed
         secureStorage.put(KEY_MAILBOX_SEED, mailboxSeed)
 
-        Log.d(TAG, "✓ [KEY_STORE] All keys stored securely: encryption, identity, mailbox seed")
+        // Verify what was actually stored
+        val storedPubKey = secureStorage.get(KEY_ENCRYPTION_PUBLIC)
+        val storedHex = storedPubKey?.joinToString("") { "%02x".format(it) } ?: "null"
+        Log.e(TAG, "🔑 [KEY_GEN #$callNum] Verified stored publicKey: $storedHex")
+        Log.e(TAG, "🔑 [KEY_GEN #$callNum] Match: ${storedHex == pubKeyHex}")
     }
 
     /**
@@ -169,7 +204,8 @@ class IdentityRepository(
             Log.e(TAG, "❌ [KEY_ERROR] Public encryption key not found in storage")
             Log.e(TAG, "   Storage key checked: $KEY_ENCRYPTION_PUBLIC")
         } else {
-            Log.d(TAG, "✓ [KEY_FOUND] Public encryption key: ${key.size} bytes")
+            val keyHex = key.joinToString("") { "%02x".format(it) }
+            Log.e(TAG, "✓ [KEY_READ] Public encryption key: $keyHex")
         }
         return key
     }
@@ -271,12 +307,12 @@ class IdentityRepository(
     
     private suspend fun loadFromStorage(): Identity? {
         if (!hasIdentity()) return null
-        
+
         val encryptedSeed = secureStorage.get(KEY_SEED) ?: return null
         val nonce = secureStorage.get(KEY_NONCE) ?: return null
         val wordsString = secureStorage.getString(KEY_WORDS) ?: return null
         val createdAt = secureStorage.getString(KEY_CREATED)?.toLongOrNull() ?: return null
-        
+
         // Decrypt the seed
         val seed = crypto.decrypt(
             encrypted = com.void.slate.crypto.EncryptedData(
@@ -285,7 +321,11 @@ class IdentityRepository(
             ),
             key = getStorageKey()
         )
-        
+
+        val seedHex = seed.joinToString("") { "%02x".format(it) }
+        Log.d(TAG, "🔒 [LOAD_FROM_STORAGE] Decrypted seed: $seedHex")
+        Log.d(TAG, "🔒 [LOAD_FROM_STORAGE] Words: $wordsString")
+
         return Identity(
             words = wordsString.split(","),
             seed = seed,

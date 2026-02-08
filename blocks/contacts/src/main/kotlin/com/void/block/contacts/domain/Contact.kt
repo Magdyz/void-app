@@ -22,6 +22,7 @@ data class Contact(
     val identityKey: ByteArray,               // Their Ed25519 identity key
     val mailboxSeed: ByteArray,               // 🆕 CHANGED: Mailbox seed (SAFE TO SHARE)
     val verified: Boolean = false,            // Have we verified their key in person?
+    val mutuallyVerified: Boolean = false,    // True after mutual QR exchange confirmed via handshake
     val blocked: Boolean = false,             // Is this contact blocked?
     val addedAt: Long = System.currentTimeMillis(),
     val lastSeenAt: Long? = null,            // Last time we got a message from them

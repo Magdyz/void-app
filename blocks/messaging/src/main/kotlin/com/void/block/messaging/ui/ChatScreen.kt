@@ -35,6 +35,7 @@ fun ChatScreen(
     val state by viewModel.state.collectAsState()
     val messageText by viewModel.messageText.collectAsState()
     val isTyping by viewModel.isTyping.collectAsState()
+    val isMutuallyVerified by viewModel.isMutuallyVerified.collectAsState()
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -71,11 +72,23 @@ fun ChatScreen(
         },
         bottomBar = {
             Column {
-                // Typing indicator (would be shown when contact is typing)
-                // For now, just a placeholder
-                // if (contactIsTyping) {
-                //     TypingIndicator(contactName = contactName)
-                // }
+                // Pending verification banner
+                if (!isMutuallyVerified) {
+                    Surface(
+                        color = TerminalStandard.Background,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "[ waiting for mutual verification... ]",
+                            style = TerminalStandard.Body,
+                            color = TerminalStandard.TextSecondary,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                        )
+                    }
+                }
 
                 MessageInputBar(
                     message = messageText,
@@ -87,7 +100,7 @@ fun ChatScreen(
                             listState.animateScrollToItem(0)
                         }
                     },
-                    enabled = state is ChatState.Success
+                    enabled = state is ChatState.Success && isMutuallyVerified
                 )
             }
         }

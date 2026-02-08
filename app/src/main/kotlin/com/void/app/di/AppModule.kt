@@ -130,6 +130,26 @@ val appModule = module {
         callback
     }
 
+    // Mutual Verification Callbacks - bridges contacts and messaging blocks
+    single<suspend (String) -> Boolean>(org.koin.core.qualifier.named("isContactMutuallyVerified")) {
+        val contactRepo = get<com.void.block.contacts.data.ContactRepository>()
+        val callback: suspend (String) -> Boolean = { contactId ->
+            contactRepo.getContact(contactId)?.mutuallyVerified ?: false
+        }
+        callback
+    }
+
+    single<suspend (String) -> Unit>(org.koin.core.qualifier.named("markContactMutuallyVerified")) {
+        val contactRepo = get<com.void.block.contacts.data.ContactRepository>()
+        val callback: suspend (String) -> Unit = { contactId ->
+            val contact = contactRepo.getContact(contactId)
+            if (contact != null && !contact.mutuallyVerified) {
+                contactRepo.updateContact(contact.copy(mutuallyVerified = true))
+            }
+        }
+        callback
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // Message Sync Infrastructure (for push notifications and background sync)
     // ═══════════════════════════════════════════════════════════════════

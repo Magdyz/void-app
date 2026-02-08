@@ -84,6 +84,10 @@ fun MessageBubble(
                         textAlign = TextAlign.Center
                     )
                 }
+                is MessageContent.Handshake -> {
+                    // Handshake messages are invisible - should never reach UI
+                    // but handle exhaustively just in case
+                }
             }
 
             Spacer(modifier = Modifier.height(2.dp))
@@ -115,6 +119,7 @@ private fun getStatusIndicator(status: MessageStatus): String {
         MessageStatus.READ -> "[read]"
         MessageStatus.FAILED -> "[failed]"
         MessageStatus.EXPIRED -> "[expired]"
+        MessageStatus.PENDING_VERIFICATION -> "[pending...]"
     }
 }
 

@@ -36,10 +36,38 @@ class ChatViewModel(
     private val _isTyping = MutableStateFlow(false)
     val isTyping: StateFlow<Boolean> = _isTyping.asStateFlow()
 
+    private val _isMutuallyVerified = MutableStateFlow(true) // Assume verified until checked
+    val isMutuallyVerified: StateFlow<Boolean> = _isMutuallyVerified.asStateFlow()
+
     init {
+        checkMutualVerification()
         loadMessages()
         loadDraft()
         startMessagePolling()
+    }
+
+    /**
+     * Check mutual verification status and initiate handshake if needed.
+     * Re-checks periodically in case the handshake completes while chat is open.
+     */
+    private fun checkMutualVerification() {
+        viewModelScope.launch {
+            val verified = messageRepository.ensureMutualVerification(contactId)
+            _isMutuallyVerified.value = verified
+
+            if (!verified) {
+                Log.d(TAG, "⏳ [VERIFICATION] Contact $contactId pending verification, will re-check")
+                // Re-check every 10 seconds until verified
+                while (!_isMutuallyVerified.value) {
+                    delay(10_000)
+                    val nowVerified = messageRepository.ensureMutualVerification(contactId)
+                    _isMutuallyVerified.value = nowVerified
+                    if (nowVerified) {
+                        Log.d(TAG, "✅ [VERIFICATION] Contact $contactId is now mutually verified!")
+                    }
+                }
+            }
+        }
     }
 
     /**

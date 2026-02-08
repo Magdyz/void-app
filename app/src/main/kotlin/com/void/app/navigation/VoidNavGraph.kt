@@ -258,11 +258,13 @@ fun VoidNavGraph(
                     val identityKey = identityRepository.getPublicIdentityKey()
                     val mailboxSeed = identityRepository.getMailboxSeed()
 
-                    android.util.Log.d("VOID_QR", "🔍 [QR_GENERATE] Generating QR code data (generation #$qrGenerationCount):")
-                    android.util.Log.d("VOID_QR", "  Identity: ${identity?.formatted}")
-                    android.util.Log.d("VOID_QR", "  PublicKey: ${publicKey?.size} bytes")
-                    android.util.Log.d("VOID_QR", "  IdentityKey: ${identityKey?.size} bytes")
-                    android.util.Log.d("VOID_QR", "  MailboxSeed: ${mailboxSeed?.size} bytes (first 16: ${mailboxSeed?.take(16)?.joinToString("") { "%02x".format(it) }})")
+                    val pubKeyHex = publicKey?.joinToString("") { "%02x".format(it) }
+                    val idKeyHex = identityKey?.joinToString("") { "%02x".format(it) }
+                    android.util.Log.e("VOID_QR", "🔍 [QR_GENERATE] Generating QR code data (generation #$qrGenerationCount):")
+                    android.util.Log.e("VOID_QR", "  Identity: ${identity?.formatted}")
+                    android.util.Log.e("VOID_QR", "  PublicKey (FULL HEX): $pubKeyHex")
+                    android.util.Log.e("VOID_QR", "  IdentityKey (FULL HEX): $idKeyHex")
+                    android.util.Log.e("VOID_QR", "  MailboxSeed: ${mailboxSeed?.size} bytes (first 16: ${mailboxSeed?.take(16)?.joinToString("") { "%02x".format(it) }})")
 
                     if (identity != null && publicKey != null && identityKey != null && mailboxSeed != null) {
                         val threeWordIdentity = com.void.block.contacts.domain.ThreeWordIdentity(
