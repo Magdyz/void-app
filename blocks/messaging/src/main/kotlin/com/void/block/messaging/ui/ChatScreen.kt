@@ -1,6 +1,7 @@
 package com.void.block.messaging.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -41,11 +42,12 @@ fun ChatScreen(
     val coroutineScope = rememberCoroutineScope()
 
     Scaffold(
+        modifier = Modifier.imePadding(),
         topBar = {
             TopAppBar(
                 title = {
-                    val truncatedName = if (contactName.length > 4) {
-                        contactName.take(4) + "..."
+                    val truncatedName = if (contactName.length > 20) {
+                        contactName.take(20) + "..."
                     } else {
                         contactName
                     }

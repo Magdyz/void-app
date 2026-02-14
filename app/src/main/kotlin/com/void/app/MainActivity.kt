@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -62,6 +63,10 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Enable edge-to-edge so Compose handles WindowInsets (IME, system bars) natively.
+        // This gives smooth keyboard animations instead of abrupt adjustResize jumps.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         // SECURITY: Clear activity notification when app opens
         // User will see message details in-app after authentication

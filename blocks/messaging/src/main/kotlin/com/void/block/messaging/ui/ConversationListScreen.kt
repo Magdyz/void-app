@@ -34,6 +34,7 @@ fun ConversationListScreen(
     onNewConversation: () -> Unit,
     userIdentity: String? = null,
     qrCodeJson: String? = null,
+    contactNameResolver: (suspend (String) -> String?)? = null,
     viewModel: ConversationListViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -126,7 +127,8 @@ fun ConversationListScreen(
                             onConversationClick = onConversationClick,
                             onConversationDelete = { conversationId ->
                                 viewModel.deleteConversation(conversationId)
-                            }
+                            },
+                            contactNameResolver = contactNameResolver
                         )
                     }
 
@@ -160,7 +162,8 @@ fun ConversationListScreen(
 private fun ConversationList(
     conversations: List<com.void.block.messaging.domain.Conversation>,
     onConversationClick: (String) -> Unit,
-    onConversationDelete: (String) -> Unit
+    onConversationDelete: (String) -> Unit,
+    contactNameResolver: (suspend (String) -> String?)? = null
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize()
@@ -169,9 +172,15 @@ private fun ConversationList(
             items = conversations,
             key = { it.id }
         ) { conversation ->
+            val contactName by produceState(initialValue = conversation.contactId) {
+                if (contactNameResolver != null) {
+                    value = contactNameResolver(conversation.contactId) ?: conversation.contactId
+                }
+            }
+
             ConversationItem(
                 conversation = conversation,
-                contactName = conversation.contactId, // TODO: Resolve contact name from contacts block via EventBus
+                contactName = contactName,
                 onClick = { onConversationClick(conversation.id) }
             )
 

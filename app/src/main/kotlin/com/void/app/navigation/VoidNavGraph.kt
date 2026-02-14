@@ -33,6 +33,7 @@ import app.voidapp.block.constellation.ui.confirm.ConstellationConfirmViewModel
 import app.voidapp.block.constellation.ui.confirm.ConstellationConfirmState
 import app.voidapp.block.constellation.ui.unlock.ConstellationUnlockScreen
 import app.voidapp.block.constellation.ui.unlock.ConstellationUnlockViewModel
+import com.void.block.contacts.data.ContactRepository
 import com.void.block.identity.data.IdentityRepository
 import com.void.block.identity.ui.IdentityScreen
 import com.void.slate.navigation.Routes
@@ -299,6 +300,8 @@ fun VoidNavGraph(
                 }
             }
 
+            val contactRepository: ContactRepository = koinInject()
+
             com.void.block.messaging.ui.ConversationListScreen(
                 onConversationClick = { conversationId ->
                     // Use conversationId as contactId for 1:1 chats
@@ -308,15 +311,22 @@ fun VoidNavGraph(
                     navController.navigate(Routes.CONTACTS_LIST)
                 },
                 userIdentity = userIdentity,
-                qrCodeJson = qrCodeJson
+                qrCodeJson = qrCodeJson,
+                contactNameResolver = { contactId ->
+                    contactRepository.getContact(contactId)?.getDisplayNameOrIdentity()
+                }
             )
         }
 
         composable("messages/chat/{contactId}") { backStackEntry ->
             val contactId = backStackEntry.arguments?.getString("contactId") ?: return@composable
-            // Use contactId as conversationId for 1:1 chats
+            val contactRepository: ContactRepository = koinInject()
             val conversationId = contactId
-            val contactName = contactId // TODO: Resolve contact name from contacts repository
+
+            val contactName by produceState(initialValue = contactId) {
+                val contact = contactRepository.getContact(contactId)
+                value = contact?.getDisplayNameOrIdentity() ?: contactId
+            }
 
             com.void.block.messaging.ui.ChatScreen(
                 conversationId = conversationId,
