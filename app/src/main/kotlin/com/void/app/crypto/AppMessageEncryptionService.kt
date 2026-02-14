@@ -6,6 +6,8 @@ import com.void.block.identity.data.IdentityRepository
 import com.void.block.messaging.crypto.MessageEncryption
 import com.void.block.messaging.crypto.MessageEncryptionService
 import com.void.block.messaging.domain.MessageContent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.Base64
 
 /**
@@ -74,29 +76,32 @@ class AppMessageEncryptionService(
             val messageBytes = messageText.toByteArray(Charsets.UTF_8)
             Log.d(TAG, "🔐 [MESSAGE] ${messageBytes.size} bytes: \"$messageText\"")
 
-            // Prepend sealed sender header to plaintext
-            val plaintextWithHeader = com.void.block.messaging.crypto.SealedSenderHeader.prependToMessage(
-                senderId = mySenderId,
-                timestamp = System.currentTimeMillis(),
-                messageContent = messageBytes
-            )
-            Log.d(TAG, "📋 [HEADER_ADDED] plaintext with header: ${plaintextWithHeader.size} bytes")
+            // Crypto operations on Default dispatcher to avoid blocking main thread
+            val base64 = withContext(Dispatchers.Default) {
+                // Prepend sealed sender header to plaintext
+                val plaintextWithHeader = com.void.block.messaging.crypto.SealedSenderHeader.prependToMessage(
+                    senderId = mySenderId,
+                    timestamp = System.currentTimeMillis(),
+                    messageContent = messageBytes
+                )
+                Log.d(TAG, "📋 [HEADER_ADDED] plaintext with header: ${plaintextWithHeader.size} bytes")
 
-            // Encrypt (plaintext now includes header)
-            val encryptedMessage = messageEncryption.encrypt(
-                plaintext = plaintextWithHeader,
-                recipientPublicKey = recipientPublicKey,
-                senderPrivateKey = myPrivateKey
-            )
-            Log.d(TAG, "🔒 [ENCRYPT] ciphertext: ${encryptedMessage.ciphertext.size} bytes, nonce: ${encryptedMessage.nonce.size} bytes")
-            Log.d(TAG, "✓ [MAC_COMPUTE] MAC: ${encryptedMessage.mac.toHex()}")
+                // Encrypt (plaintext now includes header)
+                val encryptedMessage = messageEncryption.encrypt(
+                    plaintext = plaintextWithHeader,
+                    recipientPublicKey = recipientPublicKey,
+                    senderPrivateKey = myPrivateKey
+                )
+                Log.d(TAG, "🔒 [ENCRYPT] ciphertext: ${encryptedMessage.ciphertext.size} bytes, nonce: ${encryptedMessage.nonce.size} bytes")
+                Log.d(TAG, "✓ [MAC_COMPUTE] MAC: ${encryptedMessage.mac.toHex()}")
 
-            // Serialize
-            val serialized = messageEncryption.serializeEncryptedMessage(encryptedMessage)
-            Log.d(TAG, "📦 [SERIALIZE] envelope: ${serialized.size} bytes")
+                // Serialize
+                val serialized = messageEncryption.serializeEncryptedMessage(encryptedMessage)
+                Log.d(TAG, "📦 [SERIALIZE] envelope: ${serialized.size} bytes")
 
-            // Base64 encode
-            val base64 = Base64.getEncoder().encode(serialized)
+                // Base64 encode
+                Base64.getEncoder().encode(serialized)
+            }
             Log.d(TAG, "📤 [NETWORK_SEND] base64: ${base64.size} bytes")
             Log.d(TAG, "⚠️  [SECURITY_CHECK] Plaintext NEVER sent: ✓")
 
@@ -201,27 +206,30 @@ class AppMessageEncryptionService(
             var matchedContact: com.void.block.contacts.domain.Contact? = null
 
             // Try decrypting with each contact's public key
-            for (contact in allContacts) {
-                try {
-                    val contactPubKeyHex = contact.publicKey.joinToString("") { "%02x".format(it) }
-                    Log.d(TAG, "🔍 [TRY_DECRYPT] Contact: ${contact.identity}")
-                    Log.d(TAG, "🔍   Stored publicKey: ${contactPubKeyHex.take(32)}...")
+            // Run on Default dispatcher to avoid blocking main thread (O(N) crypto)
+            withContext(Dispatchers.Default) {
+                for (contact in allContacts) {
+                    try {
+                        val contactPubKeyHex = contact.publicKey.joinToString("") { "%02x".format(it) }
+                        Log.d(TAG, "🔍 [TRY_DECRYPT] Contact: ${contact.identity}")
+                        Log.d(TAG, "🔍   Stored publicKey: ${contactPubKeyHex.take(32)}...")
 
-                    val plaintext = messageEncryption.decrypt(
-                        encrypted = encryptedMessage,
-                        senderPublicKey = contact.publicKey,
-                        recipientPrivateKey = myPrivateKey
-                    )
+                        val plaintext = messageEncryption.decrypt(
+                            encrypted = encryptedMessage,
+                            senderPublicKey = contact.publicKey,
+                            recipientPrivateKey = myPrivateKey
+                        )
 
-                    // If decryption succeeds, we found the sender
-                    decryptedPlaintext = plaintext
-                    matchedContact = contact
-                    Log.d(TAG, "✅ Message decrypted from: ${contact.identity}")
-                    break
+                        // If decryption succeeds, we found the sender
+                        decryptedPlaintext = plaintext
+                        matchedContact = contact
+                        Log.d(TAG, "✅ Message decrypted from: ${contact.identity}")
+                        break
 
-                } catch (e: Exception) {
-                    // Decryption failed with this contact, try next
-                    Log.w(TAG, "⚠️ [DECRYPT_FAILED] Contact ${contact.identity}: ${e.message}")
+                    } catch (e: Exception) {
+                        // Decryption failed with this contact, try next
+                        Log.w(TAG, "⚠️ [DECRYPT_FAILED] Contact ${contact.identity}: ${e.message}")
+                    }
                 }
             }
 

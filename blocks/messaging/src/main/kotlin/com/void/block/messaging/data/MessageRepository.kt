@@ -659,7 +659,7 @@ class MessageRepository(
             // Keep fetching each mailbox until we get a noise response (empty mailbox)
             coroutineScope {
                 val deferredResults = mailboxHashes.map { mailboxHash ->
-                    async {
+                    async(Dispatchers.IO) {
                         fetchMailboxUntilEmpty(mailboxHash, userIdentity.seed, dbEpoch)
                     }
                 }

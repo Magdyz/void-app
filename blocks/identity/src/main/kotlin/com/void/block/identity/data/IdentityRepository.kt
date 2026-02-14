@@ -5,9 +5,11 @@ import com.void.block.identity.domain.Identity
 import com.void.slate.crypto.CryptoProvider
 import com.void.slate.crypto.keystore.KeystoreManager
 import com.void.slate.storage.SecureStorage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 
 /**
  * Repository for identity storage and retrieval.
@@ -144,7 +146,7 @@ class IdentityRepository(
      * - Mailbox seed is derived separately (CAN BE SHARED via QR code)
      * - Mailbox seed CANNOT derive private keys (domain separation via HKDF)
      */
-    private suspend fun generateAndStoreKeyPairs() {
+    private suspend fun generateAndStoreKeyPairs() = withContext(Dispatchers.Default) {
         keyGenCallCount++
         val callNum = keyGenCallCount
         val caller = Thread.currentThread().stackTrace.take(6).joinToString(" <- ") { it.methodName }
@@ -313,14 +315,16 @@ class IdentityRepository(
         val wordsString = secureStorage.getString(KEY_WORDS) ?: return null
         val createdAt = secureStorage.getString(KEY_CREATED)?.toLongOrNull() ?: return null
 
-        // Decrypt the seed
-        val seed = crypto.decrypt(
-            encrypted = com.void.slate.crypto.EncryptedData(
-                ciphertext = encryptedSeed,
-                nonce = nonce
-            ),
-            key = getStorageKey()
-        )
+        // Decrypt the seed (CPU-intensive, run on Default dispatcher)
+        val seed = withContext(Dispatchers.Default) {
+            crypto.decrypt(
+                encrypted = com.void.slate.crypto.EncryptedData(
+                    ciphertext = encryptedSeed,
+                    nonce = nonce
+                ),
+                key = getStorageKey()
+            )
+        }
 
         val seedHex = seed.joinToString("") { "%02x".format(it) }
         Log.d(TAG, "🔒 [LOAD_FROM_STORAGE] Decrypted seed: $seedHex")
